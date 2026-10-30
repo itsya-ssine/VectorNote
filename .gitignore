@@ -1,0 +1,23 @@
+.venv/
+__pycache__/
+*.py[cod]
+.mypy_cache/
+.pytest_cache/
+.coverage
+htmlcov/
+dist/
+build/
+*.egg-info/
+.env
+
+# Local data: never commit course material or the vector store
+data/*
+!data/.gitkeep
+chroma_db/
+
+# Web
+web/node_modules/
+web/dist/
+web/.vercel/
+web/*.tsbuildinfo
+web/.env.local

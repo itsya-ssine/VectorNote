@@ -1,0 +1,1 @@
+"""Embedding model wrappers."""
