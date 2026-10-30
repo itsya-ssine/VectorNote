@@ -9,6 +9,7 @@ dependencies = [
     "fastapi>=0.115",
     "httpx>=0.27",
     "pydantic>=2.7",
+    "pymupdf>=2.0",
     "python-multipart>=0.0.9",
     "uvicorn[standard]>=0.30",
 ]
@@ -37,6 +38,11 @@ packages = ["src/vectornote"]
 strict = true
 files = ["src", "tests", "scripts"]
 python_version = "3.11"
+
+[[tool.mypy.overrides]]
+# pymupdf has partial type hints
+module = ["vectornote.ingestion.loaders", "tests.pdf_helpers"]
+disallow_untyped_calls = false
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
