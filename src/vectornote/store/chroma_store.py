@@ -54,20 +54,46 @@ class ChromaStore:
     def count(self) -> int:
         return int(self._collection.count())
 
-    def add(self, chunks: Sequence[Chunk], embeddings: Sequence[Sequence[float]]) -> None:
-        """Insert chunks, replacing any chunk with the same ID (safe to re-run)."""
+    def add(
+        self,
+        chunks: Sequence[Chunk],
+        embeddings: Sequence[Sequence[float]],
+        file_hash: str | None = None,
+    ) -> None:
+        """Insert chunks, replacing any chunk with the same ID (safe to re-run).
+
+        `file_hash` (content hash of the source file) is stored with every chunk so
+        unchanged files can be skipped on the next ingest.
+        """
         if len(chunks) != len(embeddings):
             raise ValueError(f"{len(chunks)} chunks but {len(embeddings)} embeddings")
         for start in range(0, len(chunks), BATCH_SIZE):
             end = start + BATCH_SIZE
             batch = chunks[start:end]
             vectors: Any = [list(v) for v in embeddings[start:end]]
+            metadatas: Any = [self._metadata(c, file_hash) for c in batch]
             self._collection.upsert(
                 ids=[c.chunk_id for c in batch],
                 embeddings=vectors,
                 documents=[c.text for c in batch],
-                metadatas=[{"source": c.source, "page": c.page} for c in batch],
+                metadatas=metadatas,
             )
+
+    @staticmethod
+    def _metadata(chunk: Chunk, file_hash: str | None) -> dict[str, str | int]:
+        meta: dict[str, str | int] = {"source": chunk.source, "page": chunk.page}
+        if file_hash is not None:
+            meta["file_hash"] = file_hash
+        return meta
+
+    def get_file_hash(self, source: str) -> str | None:
+        """Content hash recorded when `source` was last ingested, if any."""
+        found: Any = self._collection.get(
+            where={"source": source}, limit=1, include=["metadatas"]
+        )
+        metas = found["metadatas"] or []
+        value = metas[0].get("file_hash") if metas else None
+        return str(value) if value is not None else None
 
     def query(
         self,

@@ -120,3 +120,19 @@ def test_different_embedding_model_is_refused(tmp_path: Path) -> None:
     _fill(_store(path))
     with pytest.raises(EmbeddingModelMismatchError, match="hashing"):
         ChromaStore(path, "sentence-transformers/all-MiniLM-L6-v2")
+
+
+def test_file_hash_is_stored_per_source(tmp_path: Path) -> None:
+    store = _store(tmp_path / "db")
+    os_chunks = [c for c in CHUNKS if c.source == "os.pdf"]
+    store.add(os_chunks, EMBEDDER.encode([c.text for c in os_chunks]), file_hash="abc123")
+    assert store.get_file_hash("os.pdf") == "abc123"
+    assert store.get_file_hash("net.md") is None
+    store.delete_by_source("os.pdf")
+    assert store.get_file_hash("os.pdf") is None
+
+
+def test_chunks_added_without_hash_have_none(tmp_path: Path) -> None:
+    store = _store(tmp_path / "db")
+    _fill(store)
+    assert store.get_file_hash("os.pdf") is None

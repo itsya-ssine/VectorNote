@@ -34,4 +34,5 @@ class DocumentInfo(BaseModel):
 
 class IngestResponse(BaseModel):
     filename: str
+    status: str
     chunks_added: int

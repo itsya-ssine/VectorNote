@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import argparse
 import sys
-from collections.abc import Sequence
+from collections import Counter
+from collections.abc import Iterator, Sequence
 from pathlib import Path
 
 from vectornote import __version__
@@ -17,6 +18,7 @@ from vectornote.ingestion.loaders import (
     load_document,
 )
 from vectornote.models import Document
+from vectornote.service import IngestResult, RagService
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -26,7 +28,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     sub = parser.add_subparsers(dest="command")
-    sub.add_parser("ingest", help="Ingest documents from the data directory.")
+    ingest = sub.add_parser("ingest", help="Index documents (default: the data directory).")
+    ingest.add_argument("paths", nargs="*", type=Path, help="files or folders to ingest")
+    ingest.add_argument("--force", action="store_true", help="re-index unchanged files too")
+    ingest.add_argument(
+        "--prune", action="store_true", help="drop indexed files that left the data directory"
+    )
     ask = sub.add_parser("ask", help="Ask a question about your documents.")
     ask.add_argument("question")
     inspect = sub.add_parser("inspect", help="Load and clean one file and show the result.")
@@ -75,12 +82,56 @@ def _print_chunk_stats(doc: Document, chars: int) -> None:
         print(f"... and {len(chunks) - 5} more")
 
 
+def _describe(result: IngestResult) -> str:
+    line = f"{result.status:<10} {result.source}"
+    if result.status in ("added", "updated"):
+        line += f"  ({result.chunks_added} chunks)"
+    if result.error:
+        line += f"  ({result.error})"
+    return line
+
+
+def _ingest(paths: list[Path], force: bool, prune: bool) -> int:
+    settings = Settings()
+    service = RagService(settings)
+    if prune and paths:
+        print("error: --prune only works on the data directory (give no paths)", file=sys.stderr)
+        return 2
+
+    counts: Counter[str] = Counter()
+    for target in paths or [settings.data_dir]:
+        results: Iterator[IngestResult]
+        if target.is_dir():
+            results = service.ingest_directory(target, force=force, prune=prune)
+        elif target.is_file():
+            results = iter([_ingest_file(service, target, force)])
+        else:
+            print(f"error: {target} not found", file=sys.stderr)
+            return 2
+        for result in results:
+            counts[result.status] += 1
+            print(_describe(result))
+
+    summary = ", ".join(f"{n} {status}" for status, n in sorted(counts.items())) or "nothing to do"
+    print(f"\n{summary}. Index holds {service.index_size()} chunks.")
+    return 1 if counts["failed"] else 0
+
+
+def _ingest_file(service: RagService, path: Path, force: bool) -> IngestResult:
+    try:
+        return service.ingest_path(path, force=force)
+    except (UnsupportedFileTypeError, DocumentLoadError, OSError) as exc:
+        return IngestResult(path.name, "failed", error=str(exc))
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     if args.command is None:
         parser.print_help()
         return 0
+    if args.command == "ingest":
+        return _ingest(args.paths, args.force, args.prune)
     if args.command == "inspect":
         return _inspect(args.path, args.chars, args.chunks)
     if args.command == "serve":
