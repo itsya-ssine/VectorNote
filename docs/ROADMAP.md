@@ -25,24 +25,24 @@ Phases 1 to 3 give you a working terminal tool, which is the core of the project
 
 ## Phase 1: Ingestion
 
-- [ ] **Task 2: Loaders and cleaning** (`feat/loaders`)
+- [x] **Task 2: Loaders and cleaning** (`feat/loaders`)
   - Implement `load_document` for PDF (`pymupdf`), Markdown and TXT, returning one `Document` with a list of pages.
   - Implement `clean_text`: remove repeated headers and footers, fix hyphenated line breaks, collapse whitespace, drop empty pages.
   - Tests use small fixture files (a generated PDF, a `.md`, a `.txt`).
   - **Done when:** a real lecture PDF loads with correct page numbers and clean text.
 
-- [ ] **Task 3: Chunking** (`feat/chunking`)
+- [x] **Task 3: Chunking** (`feat/chunking`)
   - Recursive splitter that respects paragraphs and sentences. Defaults: about 800 characters with about 100 overlap, read from `Settings`.
   - Every `Chunk` carries `chunk_id` (stable hash of source, page and position), `source`, `page` and `text`.
   - Tests cover overlap, no empty chunks, and stable IDs across runs.
   - **Done when:** chunking a 50-page PDF gives sane chunk counts and every chunk maps back to a page.
 
-- [ ] **Task 4: Embeddings and vector store** (`feat/embeddings-store`)
+- [x] **Task 4: Embeddings and vector store** (`feat/embeddings-store`)
   - `Encoder` wraps `all-MiniLM-L6-v2` (sentence-transformers) with batching and lazy model loading.
   - `ChromaStore`: persistent client with `add`, `query`, `delete_by_source` and `list_sources`.
   - **Done when:** you can add chunks, restart the process, and still query them.
 
-- [ ] **Task 5: Ingestion service and CLI** (`feat/ingest-pipeline`)
+- [x] **Task 5: Ingestion service and CLI** (`feat/ingest-pipeline`)
   - `RagService.ingest` runs load, clean, chunk, embed and store.
   - Store a content hash per file so unchanged files are skipped and edited files are re-indexed (delete old chunks first).
   - Wire `vectornote ingest` and `POST /ingest`, and report chunks added.
@@ -50,7 +50,7 @@ Phases 1 to 3 give you a working terminal tool, which is the core of the project
 
 ## Phase 2: Retrieval
 
-- [ ] **Task 6: Vector search** (`feat/vector-retrieval`)
+- [x] **Task 6: Vector search** (`feat/vector-retrieval`)
   - `Retriever.search` returns `SearchResult` objects with scores, supports `top_k` and a filter by source.
 
 - [ ] **Task 7: BM25 and hybrid** (`feat/hybrid-retrieval`)
