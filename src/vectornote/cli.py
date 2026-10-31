@@ -8,12 +8,15 @@ from collections.abc import Sequence
 from pathlib import Path
 
 from vectornote import __version__
+from vectornote.config import Settings
+from vectornote.ingestion.chunking import chunk_document
 from vectornote.ingestion.cleaning import clean_document
 from vectornote.ingestion.loaders import (
     DocumentLoadError,
     UnsupportedFileTypeError,
     load_document,
 )
+from vectornote.models import Document
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -29,6 +32,7 @@ def build_parser() -> argparse.ArgumentParser:
     inspect = sub.add_parser("inspect", help="Load and clean one file and show the result.")
     inspect.add_argument("path", type=Path)
     inspect.add_argument("--chars", type=int, default=300, help="preview length per page")
+    inspect.add_argument("--chunks", action="store_true", help="also show chunking statistics")
     serve = sub.add_parser("serve", help="Run the HTTP API.")
     serve.add_argument("--host", default="127.0.0.1")
     serve.add_argument("--port", type=int, default=8000)
@@ -36,7 +40,7 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _inspect(path: Path, chars: int) -> int:
+def _inspect(path: Path, chars: int, show_chunks: bool) -> int:
     try:
         raw = load_document(path)
     except (FileNotFoundError, UnsupportedFileTypeError, DocumentLoadError) as exc:
@@ -48,7 +52,27 @@ def _inspect(path: Path, chars: int) -> int:
     for page in doc.pages:
         preview = page.text[:chars].replace("\n", " / ")
         print(f"--- page {page.number} ({len(page.text)} chars)\n{preview}")
+    if show_chunks:
+        _print_chunk_stats(doc, chars)
     return 0
+
+
+def _print_chunk_stats(doc: Document, chars: int) -> None:
+    settings = Settings()
+    chunks = chunk_document(doc, settings.chunk_size, settings.chunk_overlap)
+    if not chunks:
+        print("no chunks")
+        return
+    sizes = [len(c.text) for c in chunks]
+    print(
+        f"\n{len(chunks)} chunks (size={settings.chunk_size}, overlap={settings.chunk_overlap}): "
+        f"min {min(sizes)}, avg {sum(sizes) // len(sizes)}, max {max(sizes)} chars"
+    )
+    for chunk in chunks[:5]:
+        preview = chunk.text[:chars].replace("\n", " / ")
+        print(f"--- {chunk.chunk_id}\n{preview}")
+    if len(chunks) > 5:
+        print(f"... and {len(chunks) - 5} more")
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -58,7 +82,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         parser.print_help()
         return 0
     if args.command == "inspect":
-        return _inspect(args.path, args.chars)
+        return _inspect(args.path, args.chars, args.chunks)
     if args.command == "serve":
         import uvicorn
 
