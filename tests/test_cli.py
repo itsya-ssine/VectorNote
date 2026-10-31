@@ -19,3 +19,12 @@ def test_inspect_prints_summary(tmp_path: Path, capsys: pytest.CaptureFixture[st
 def test_inspect_missing_file(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     assert main(["inspect", str(tmp_path / "missing.pdf")]) == 2
     assert "error" in capsys.readouterr().err
+
+
+def test_inspect_with_chunks(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    f = tmp_path / "notes.md"
+    f.write_text("\n".join(f"Line {i} about threads and locks." for i in range(200)))
+    assert main(["inspect", str(f), "--chunks"]) == 0
+    out = capsys.readouterr().out
+    assert "chunks (size=800, overlap=100)" in out
+    assert "notes.md#p1-c0-" in out
