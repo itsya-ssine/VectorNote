@@ -62,14 +62,23 @@ def load_document(path: Path, source: str | None = None) -> Document:
     return doc
 
 
-def load_documents(directory: Path) -> list[Document]:
-    """Load every supported file under `directory`, skipping hidden files."""
-    docs: list[Document] = []
+def list_supported_files(directory: Path) -> list[tuple[Path, str]]:
+    """Find supported files under `directory`, skipping hidden ones.
+
+    Returns `(path, source)` pairs, where `source` is the path relative to
+    `directory` (the name used in citations).
+    """
+    files: list[tuple[Path, str]] = []
     for path in sorted(directory.rglob("*")):
         relative = path.relative_to(directory)
         if not path.is_file() or any(part.startswith(".") for part in relative.parts):
             continue
         if path.suffix.lower() not in SUPPORTED_EXTENSIONS:
             continue
-        docs.append(load_document(path, source=relative.as_posix()))
-    return docs
+        files.append((path, relative.as_posix()))
+    return files
+
+
+def load_documents(directory: Path) -> list[Document]:
+    """Load every supported file under `directory`."""
+    return [load_document(path, source=source) for path, source in list_supported_files(directory)]

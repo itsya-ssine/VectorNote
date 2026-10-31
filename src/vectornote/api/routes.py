@@ -17,6 +17,7 @@ from vectornote.api.schemas import (
     SourceRef,
 )
 from vectornote.config import Settings
+from vectornote.ingestion.loaders import DocumentLoadError, UnsupportedFileTypeError
 from vectornote.service import RagService
 
 router = APIRouter()
@@ -44,14 +45,17 @@ def list_documents(settings: SettingsDep) -> list[DocumentInfo]:
 
 
 @router.post("/ingest", response_model=IngestResponse)
-async def ingest(file: UploadFile, service: ServiceDep) -> IngestResponse:
-    filename = file.filename or "upload"
-    content = await file.read()
+def ingest(file: UploadFile, service: ServiceDep) -> IngestResponse:
+    """Upload a PDF, Markdown or text file and index it."""
     try:
-        chunks = service.ingest(filename, content)
-    except NotImplementedError:
-        raise HTTPException(status_code=501, detail="Ingestion is not implemented yet.")
-    return IngestResponse(filename=filename, chunks_added=chunks)
+        result = service.ingest_upload(file.filename or "upload", file.file.read())
+    except UnsupportedFileTypeError as exc:
+        raise HTTPException(status_code=415, detail=str(exc)) from exc
+    except DocumentLoadError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return IngestResponse(
+        filename=result.source, status=result.status, chunks_added=result.chunks_added
+    )
 
 
 @router.post("/ask", response_model=AskResponse)
