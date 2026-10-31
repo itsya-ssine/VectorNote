@@ -10,7 +10,7 @@ import hashlib
 import re
 import tempfile
 import threading
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
@@ -27,6 +27,7 @@ from vectornote.ingestion.loaders import (
     load_document,
 )
 from vectornote.models import SearchResult
+from vectornote.retrieval import Retriever
 from vectornote.store import ChromaStore
 
 ENCODE_BATCH = 64
@@ -73,6 +74,7 @@ class RagService:
         self.settings = settings
         self._embedder = embedder
         self._store = store
+        self._retriever: Retriever | None = None
         self._lock = threading.Lock()
 
     @property
@@ -86,6 +88,12 @@ class RagService:
         if self._store is None:
             self._store = ChromaStore(self.settings.chroma_dir, self.embedder.name)
         return self._store
+
+    @property
+    def retriever(self) -> Retriever:
+        if self._retriever is None:
+            self._retriever = Retriever(self.embedder, self.store)
+        return self._retriever
 
     def index_size(self) -> int:
         """Number of chunks currently indexed."""
@@ -173,6 +181,24 @@ class RagService:
             return result
         finally:
             temp.unlink(missing_ok=True)
+
+    # ---- retrieval -------------------------------------------------------
+
+    def search(
+        self,
+        query: str,
+        top_k: int | None = None,
+        sources: Sequence[str] | None = None,
+        min_score: float | None = None,
+    ) -> list[SearchResult]:
+        """Find the passages most relevant to `query` (default `top_k` from settings)."""
+        return self.retriever.search(
+            query, top_k or self.settings.top_k, sources=sources, min_score=min_score
+        )
+
+    def indexed_sources(self) -> dict[str, int]:
+        """Map each indexed file to its number of chunks."""
+        return self.store.list_sources()
 
     # ---- question answering ----------------------------------------------
 

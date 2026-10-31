@@ -99,3 +99,63 @@ def test_ingest_prune_with_paths_is_refused(
 def test_ingest_missing_path(workspace: Path, capsys: pytest.CaptureFixture[str]) -> None:
     assert main(["ingest", str(workspace / "nope.pdf")]) == 2
     assert "not found" in capsys.readouterr().err
+
+
+@pytest.fixture
+def indexed(workspace: Path, capsys: pytest.CaptureFixture[str]) -> Path:
+    (workspace / "os.txt").write_text("A mutex gives mutual exclusion to a critical section.")
+    (workspace / "net.md").write_text("A subnet mask separates network and host bits.")
+    assert main(["ingest"]) == 0
+    capsys.readouterr()
+    return workspace
+
+
+def test_search_prints_ranked_results(indexed: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    assert main(["search", "how does a mutex work in a critical section"]) == 0
+    out = capsys.readouterr().out
+    assert out.startswith(" 1. ")
+    first_line = out.splitlines()[0]
+    assert "os.txt, p. 1" in first_line
+    assert "mutual exclusion" in out
+
+
+def test_search_limits_and_filters(indexed: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    assert main(["search", "mask", "-k", "1", "--source", "net.md"]) == 0
+    out = capsys.readouterr().out
+    assert "net.md, p. 1" in out
+    assert "os.txt" not in out
+    assert " 2. " not in out
+
+
+def test_search_min_score_can_return_nothing(
+    indexed: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert main(["search", "zebra giraffe", "--min-score", "0.9"]) == 0
+    assert "No results." in capsys.readouterr().out
+
+
+def test_search_unknown_source(indexed: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    assert main(["search", "mutex", "--source", "missing.pdf"]) == 2
+    err = capsys.readouterr().err
+    assert "not indexed: missing.pdf" in err
+    assert "os.txt" in err
+
+
+def test_search_on_empty_index(workspace: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    assert main(["search", "mutex"]) == 1
+    assert "vectornote ingest" in capsys.readouterr().err
+
+
+def test_search_blank_query(indexed: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    assert main(["search", "  "]) == 2
+    assert "empty" in capsys.readouterr().err
+
+
+def test_switching_embedding_model_gives_a_clear_error(
+    indexed: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setenv("VECTORNOTE_EMBEDDING_MODEL", "some/other-model")
+    assert main(["search", "mutex"]) == 2
+    err = capsys.readouterr().err
+    assert "built with 'hashing'" in err
+    assert "ingest again" in err

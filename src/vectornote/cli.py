@@ -10,6 +10,7 @@ from pathlib import Path
 
 from vectornote import __version__
 from vectornote.config import Settings
+from vectornote.embeddings.encoder import EmbedderUnavailableError
 from vectornote.ingestion.chunking import chunk_document
 from vectornote.ingestion.cleaning import clean_document
 from vectornote.ingestion.loaders import (
@@ -19,6 +20,7 @@ from vectornote.ingestion.loaders import (
 )
 from vectornote.models import Document
 from vectornote.service import IngestResult, RagService
+from vectornote.store import EmbeddingModelMismatchError
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -36,6 +38,14 @@ def build_parser() -> argparse.ArgumentParser:
     )
     ask = sub.add_parser("ask", help="Ask a question about your documents.")
     ask.add_argument("question")
+    search = sub.add_parser("search", help="Find the most relevant passages for a question.")
+    search.add_argument("query")
+    search.add_argument("-k", "--top-k", type=int, default=None, help="number of results")
+    search.add_argument(
+        "--source", action="append", dest="sources", help="only search this file (repeatable)"
+    )
+    search.add_argument("--min-score", type=float, default=None, help="drop weaker matches")
+    search.add_argument("--full", action="store_true", help="print the whole chunk text")
     inspect = sub.add_parser("inspect", help="Load and clean one file and show the result.")
     inspect.add_argument("path", type=Path)
     inspect.add_argument("--chars", type=int, default=300, help="preview length per page")
@@ -117,6 +127,35 @@ def _ingest(paths: list[Path], force: bool, prune: bool) -> int:
     return 1 if counts["failed"] else 0
 
 
+def _search(
+    query: str, top_k: int | None, sources: list[str] | None, min_score: float | None, full: bool
+) -> int:
+    service = RagService(Settings())
+    if service.index_size() == 0:
+        print("The index is empty. Run `vectornote ingest` first.", file=sys.stderr)
+        return 1
+    indexed = service.indexed_sources()
+    unknown = [name for name in sources or [] if name not in indexed]
+    if unknown:
+        print(f"error: not indexed: {', '.join(unknown)}", file=sys.stderr)
+        print(f"indexed files: {', '.join(indexed)}", file=sys.stderr)
+        return 2
+    try:
+        results = service.search(query, top_k, sources, min_score)
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    if not results:
+        print("No results.")
+        return 0
+    for rank, result in enumerate(results, start=1):
+        chunk = result.chunk
+        print(f"{rank:>2}. {result.score:.3f}  {chunk.source}, p. {chunk.page}")
+        body = chunk.text if full else chunk.text[:220].replace("\n", " / ")
+        print("    " + body.replace("\n", "\n    "))
+    return 0
+
+
 def _ingest_file(service: RagService, path: Path, force: bool) -> IngestResult:
     try:
         return service.ingest_path(path, force=force)
@@ -130,8 +169,18 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.command is None:
         parser.print_help()
         return 0
+    try:
+        return _run(args)
+    except (EmbeddingModelMismatchError, EmbedderUnavailableError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+
+
+def _run(args: argparse.Namespace) -> int:
     if args.command == "ingest":
         return _ingest(args.paths, args.force, args.prune)
+    if args.command == "search":
+        return _search(args.query, args.top_k, args.sources, args.min_score, args.full)
     if args.command == "inspect":
         return _inspect(args.path, args.chars, args.chunks)
     if args.command == "serve":

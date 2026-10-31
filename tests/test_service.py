@@ -208,3 +208,21 @@ def test_corrupt_upload_does_not_replace_a_good_file(
 )
 def test_safe_filename(raw: str, expected: str) -> None:
     assert safe_filename(raw) == expected
+
+
+def test_search_uses_the_default_top_k_and_filters(
+    service: RagService, settings: Settings
+) -> None:
+    data = settings.data_dir
+    data.mkdir(parents=True)
+    (data / "os.txt").write_text("A mutex gives mutual exclusion to a critical section.")
+    (data / "net.txt").write_text("A subnet mask separates network and host bits.")
+    list(service.ingest_directory(data))
+
+    results = service.search("mutex critical section")
+    assert results[0].chunk.source == "os.txt"
+    assert len(results) == 2  # fewer chunks than the default top_k
+    assert len(service.search("mutex", top_k=1)) == 1
+    only_net = service.search("mutex", sources=["net.txt"])
+    assert {r.chunk.source for r in only_net} == {"net.txt"}
+    assert service.indexed_sources() == {"net.txt": 1, "os.txt": 1}
