@@ -7,6 +7,10 @@ from collections.abc import Sequence
 from typing import Any
 
 
+class EmbedderUnavailableError(RuntimeError):
+    """The embedding backend cannot run (for example, a missing dependency)."""
+
+
 class Encoder:
     """Runs a sentence-transformers model on this machine.
 
@@ -26,7 +30,7 @@ class Encoder:
             try:
                 module = importlib.import_module("sentence_transformers")
             except ImportError as exc:
-                raise RuntimeError(
+                raise EmbedderUnavailableError(
                     "sentence-transformers is not installed. Run: uv add sentence-transformers"
                 ) from exc
             self._model = module.SentenceTransformer(self.name)
