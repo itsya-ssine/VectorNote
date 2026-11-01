@@ -159,3 +159,39 @@ def test_switching_embedding_model_gives_a_clear_error(
     err = capsys.readouterr().err
     assert "built with 'hashing'" in err
     assert "ingest again" in err
+
+
+def test_search_modes(indexed: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    assert main(["search", "subnet", "--mode", "bm25"]) == 0
+    out = capsys.readouterr().out
+    assert "net.md, p. 1" in out
+    assert "os.txt" not in out
+
+    assert main(["search", "subnet mask", "--mode", "vector", "-k", "1"]) == 0
+    assert "net.md, p. 1" in capsys.readouterr().out
+
+
+def test_hybrid_search_shows_both_scores(indexed: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    assert main(["search", "mutex critical section", "--mode", "hybrid"]) == 0
+    first_line = capsys.readouterr().out.splitlines()[0]
+    assert "os.txt, p. 1" in first_line
+    assert "cos " in first_line
+    assert "bm25 " in first_line
+
+
+def test_default_mode_comes_from_the_environment(
+    indexed: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setenv("VECTORNOTE_RETRIEVAL_MODE", "bm25")
+    assert main(["search", "zebra"]) == 0
+    assert "No results." in capsys.readouterr().out
+    monkeypatch.setenv("VECTORNOTE_RETRIEVAL_MODE", "bogus")
+    assert main(["search", "mutex"]) == 2
+    assert "unknown retrieval mode" in capsys.readouterr().err
+
+
+def test_bm25_mode_with_min_score_is_an_error(
+    indexed: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert main(["search", "mutex", "--mode", "bm25", "--min-score", "0.5"]) == 2
+    assert "cosine" in capsys.readouterr().err

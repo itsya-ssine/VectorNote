@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+import tempfile
 from collections import Counter
 from collections.abc import Sequence
 from pathlib import Path
@@ -35,6 +37,7 @@ class ChromaStore:
         collection_name: str = "vectornote",
     ) -> None:
         path.mkdir(parents=True, exist_ok=True)
+        self._revision_file = path / "vectornote.revision"
         client = chromadb.PersistentClient(
             path=str(path),
             settings=ChromaSettings(anonymized_telemetry=False),
@@ -53,6 +56,23 @@ class ChromaStore:
 
     def count(self) -> int:
         return int(self._collection.count())
+
+    def revision(self) -> int:
+        """Counter that changes whenever chunks are added or removed.
+
+        It lives on disk, so other processes (for example a CLI `ingest` while the API
+        is running) can tell that their cached keyword index is out of date.
+        """
+        try:
+            return int(self._revision_file.read_text())
+        except (FileNotFoundError, ValueError):
+            return 0
+
+    def _bump_revision(self) -> None:
+        handle, temp_name = tempfile.mkstemp(dir=self._revision_file.parent)
+        with os.fdopen(handle, "w") as temp:
+            temp.write(str(self.revision() + 1))
+        os.replace(temp_name, self._revision_file)
 
     def add(
         self,
@@ -78,6 +98,8 @@ class ChromaStore:
                 documents=[c.text for c in batch],
                 metadatas=metadatas,
             )
+        if len(chunks) > 0:
+            self._bump_revision()
 
     @staticmethod
     def _metadata(chunk: Chunk, file_hash: str | None) -> dict[str, str | int]:
@@ -127,7 +149,8 @@ class ChromaStore:
                 source=str(meta["source"]),
                 page=int(meta["page"]),
             )
-            results.append(SearchResult(chunk=chunk, score=1.0 - float(distance)))
+            similarity = 1.0 - float(distance)
+            results.append(SearchResult(chunk=chunk, score=similarity, vector_score=similarity))
         return results
 
     def delete_by_source(self, source: str) -> int:
@@ -136,6 +159,8 @@ class ChromaStore:
         ids: list[str] = list(found["ids"])
         for start in range(0, len(ids), BATCH_SIZE):
             self._collection.delete(ids=ids[start:start + BATCH_SIZE])
+        if ids:
+            self._bump_revision()
         return len(ids)
 
     def list_sources(self) -> dict[str, int]:
@@ -143,3 +168,40 @@ class ChromaStore:
         found: Any = self._collection.get(include=["metadatas"])
         counts = Counter(str(meta["source"]) for meta in found["metadatas"] or [])
         return dict(sorted(counts.items()))
+
+    def all_chunks(self) -> list[Chunk]:
+        """Every indexed chunk, ordered by chunk ID (used to build the keyword index)."""
+        chunks: list[Chunk] = []
+        offset = 0
+        while True:
+            found: Any = self._collection.get(
+                include=["documents", "metadatas"], limit=BATCH_SIZE, offset=offset
+            )
+            ids = found["ids"]
+            if not ids:
+                break
+            rows = zip(ids, found["documents"], found["metadatas"], strict=True)
+            for chunk_id, text, meta in rows:
+                chunks.append(
+                    Chunk(
+                        chunk_id=chunk_id,
+                        text=text,
+                        source=str(meta["source"]),
+                        page=int(meta["page"]),
+                    )
+                )
+            offset += len(ids)
+        return sorted(chunks, key=lambda c: c.chunk_id)
+
+    def get_embeddings(self, chunk_ids: Sequence[str]) -> dict[str, list[float]]:
+        """Stored vectors for the given chunk IDs (unknown IDs are left out)."""
+        if not chunk_ids:
+            return {}
+        found: Any = self._collection.get(ids=list(chunk_ids), include=["embeddings"])
+        vectors = found["embeddings"]
+        if vectors is None:
+            return {}
+        return {
+            chunk_id: [float(x) for x in vector]
+            for chunk_id, vector in zip(found["ids"], vectors, strict=True)
+        }

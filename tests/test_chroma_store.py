@@ -136,3 +136,32 @@ def test_chunks_added_without_hash_have_none(tmp_path: Path) -> None:
     store = _store(tmp_path / "db")
     _fill(store)
     assert store.get_file_hash("os.pdf") is None
+
+
+def test_all_chunks_roundtrip_in_id_order(tmp_path: Path) -> None:
+    store = _store(tmp_path / "db")
+    _fill(store)
+    assert store.all_chunks() == sorted(CHUNKS, key=lambda c: c.chunk_id)
+
+
+def test_get_embeddings_returns_stored_vectors(tmp_path: Path) -> None:
+    store = _store(tmp_path / "db")
+    _fill(store)
+    vectors = store.get_embeddings(["os.pdf#p1-c0", "missing"])
+    assert list(vectors) == ["os.pdf#p1-c0"]
+    expected = EMBEDDER.encode([CHUNKS[0].text])[0]
+    assert vectors["os.pdf#p1-c0"] == pytest.approx(expected)
+    assert store.get_embeddings([]) == {}
+
+
+def test_revision_changes_only_when_chunks_change(tmp_path: Path) -> None:
+    store = _store(tmp_path / "db")
+    assert store.revision() == 0
+    _fill(store)
+    after_add = store.revision()
+    assert after_add > 0
+    store.delete_by_source("missing.pdf")
+    assert store.revision() == after_add
+    store.delete_by_source("os.pdf")
+    assert store.revision() > after_add
+    assert _store(tmp_path / "db").revision() == store.revision()

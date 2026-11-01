@@ -92,7 +92,9 @@ class RagService:
     @property
     def retriever(self) -> Retriever:
         if self._retriever is None:
-            self._retriever = Retriever(self.embedder, self.store)
+            self._retriever = Retriever(
+                self.embedder, self.store, mode=self.settings.retrieval_mode
+            )
         return self._retriever
 
     def index_size(self) -> int:
@@ -190,10 +192,18 @@ class RagService:
         top_k: int | None = None,
         sources: Sequence[str] | None = None,
         min_score: float | None = None,
+        mode: str | None = None,
     ) -> list[SearchResult]:
-        """Find the passages most relevant to `query` (default `top_k` from settings)."""
+        """Find the passages most relevant to `query`.
+
+        `top_k` and the default `mode` (vector, bm25 or hybrid) come from settings.
+        """
         return self.retriever.search(
-            query, top_k or self.settings.top_k, sources=sources, min_score=min_score
+            query,
+            top_k or self.settings.top_k,
+            sources=sources,
+            min_score=min_score,
+            mode=mode,
         )
 
     def indexed_sources(self) -> dict[str, int]:

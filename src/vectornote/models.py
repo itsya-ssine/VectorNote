@@ -33,7 +33,15 @@ class Chunk(BaseModel):
 
 
 class SearchResult(BaseModel):
-    """A chunk returned by retrieval, with its relevance score."""
+    """A chunk returned by retrieval.
+
+    `score` is the ranking score of the search mode that produced the result
+    (cosine similarity, BM25 or fused RRF score), so only compare scores within
+    one mode. `vector_score` (cosine similarity) and `bm25_score` are filled in
+    whenever the mode computed them.
+    """
 
     chunk: Chunk
     score: float
+    vector_score: float | None = None
+    bm25_score: float | None = None

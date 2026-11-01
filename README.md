@@ -10,10 +10,10 @@ Work in progress. The ingestion and search pipeline works end to end from the co
 
 | Works today | Coming next |
 |---|---|
-| PDF / Markdown / text ingestion with cleaning | BM25 + hybrid search, reranking |
+| PDF / Markdown / text ingestion with cleaning | Reranking (optional) |
 | Sentence-aware chunking with page-level citations | Cited answers from a local LLM, streaming |
 | Incremental indexing (unchanged files are skipped) | Evaluation harness and benchmarks |
-| Semantic search from the CLI | Live chat UI, Docker, Vercel demo |
+| Vector, BM25 keyword and hybrid (RRF) search from the CLI | Live chat UI, Docker, Vercel demo |
 | FastAPI endpoints for upload, listing and health | |
 
 ## How it works
@@ -21,13 +21,15 @@ Work in progress. The ingestion and search pipeline works end to end from the co
 ```
 PDFs / notes -> load -> clean -> chunk -> embed -> ChromaDB
                                                       |
-              question -> embed -> vector search -> ranked passages (file, page, score)
+              question -> vector search  --+
+                       -> BM25 keywords --+-> Reciprocal Rank Fusion -> ranked passages (file, page)
                                                       |
                                     (next) prompt -> Ollama -> cited answer
 ```
 
 - **Cleaning** removes running headers, footers and page numbers, fixes ligatures and hyphenated line breaks, and keeps the original page numbers.
 - **Chunking** never crosses a page, so every chunk maps to one `[file, page]` citation. Chunk IDs are stable, and files are tracked by content hash.
+- **Search has three modes:** `vector` (embeddings, understands paraphrases), `bm25` (exact words, acronyms, identifiers) and `hybrid` (default: both, merged with Reciprocal Rank Fusion, so a passage that ranks well in both lists wins). The keyword index is rebuilt automatically when the index changes, even if another process (such as the CLI) changed it.
 - **Indexing is incremental:** re-running `ingest` skips unchanged files and re-indexes edited ones. An edit replaces the old chunks only after the new ones were embedded successfully.
 
 ## Quick start
@@ -65,7 +67,7 @@ npm run dev                                 # UI on http://localhost:3000
 | Command | What it does |
 |---|---|
 | `vectornote ingest [paths...] [--force] [--prune]` | Index files or folders (default: `data/`). `--force` re-indexes unchanged files. `--prune` removes files that left `data/` from the index. |
-| `vectornote search "<question>" [-k N] [--source FILE] [--min-score X] [--full]` | Show the most relevant passages with score, file and page. `--source` can be repeated. |
+| `vectornote search "<question>" [-k N] [--mode vector\|bm25\|hybrid] [--source FILE] [--min-score X] [--full]` | Show the most relevant passages with score, file and page. `--source` can be repeated. `--min-score` is a minimum cosine similarity (vector and hybrid modes). In hybrid mode each result also shows its cosine and BM25 scores. |
 | `vectornote inspect <file> [--chunks]` | Show how a file is loaded, cleaned and chunked. Use it to debug a bad PDF. |
 | `vectornote serve [--host] [--port] [--reload]` | Run the HTTP API. |
 | `vectornote ask "<question>"` | Not implemented yet (Phase 3). |
@@ -88,6 +90,7 @@ Set these as environment variables. A `.env` file is not loaded automatically ye
 | `VECTORNOTE_DATA_DIR` | `data` | Folder with your documents |
 | `VECTORNOTE_CHROMA_DIR` | `chroma_db` | Where the index is stored |
 | `VECTORNOTE_EMBEDDING_MODEL` | `sentence-transformers/all-MiniLM-L6-v2` | Embedding model. `hashing` selects a tiny dependency-free embedder for tests and offline smoke runs (word matching only, no semantics). |
+| `VECTORNOTE_RETRIEVAL_MODE` | `hybrid` | Default search mode: `vector`, `bm25` or `hybrid` |
 | `VECTORNOTE_LLM_MODEL` | `llama3.2:3b` | Ollama model for answers (Phase 3) |
 | `VECTORNOTE_OLLAMA_URL` | `http://localhost:11434` | Ollama server |
 | `VECTORNOTE_CORS_ORIGINS` | `http://localhost:3000` | Allowed browser origins, comma separated |
@@ -121,7 +124,7 @@ src/vectornote/
   ingestion/      loaders, cleaning, chunking
   embeddings/     sentence-transformers encoder, hashing embedder, factory
   store/          ChromaDB persistence
-  retrieval/      vector search
+  retrieval/      vector search, BM25, rank fusion (hybrid)
   generation/     Ollama client and prompts (wired up in Phase 3)
 web/              React + TypeScript UI (live mode and static demo mode)
 scripts/          smoke tests for Ollama and the vector store
@@ -135,7 +138,7 @@ docs/             architecture notes
 - [x] **Phase 1:** ingestion (loaders and cleaning, chunking, embeddings and vector store, incremental ingest)
 - [ ] **Phase 2:** retrieval
   - [x] Vector search
-  - [ ] BM25 and hybrid search
+  - [x] BM25 and hybrid search
   - [ ] Reranking (optional)
 - [ ] **Phase 3:** generation with citations, streaming, conversation memory
 - [ ] **Phase 4:** evaluation (hit rate, MRR, faithfulness, latency)
