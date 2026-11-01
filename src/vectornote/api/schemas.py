@@ -13,9 +13,12 @@ class HealthResponse(BaseModel):
 class AskRequest(BaseModel):
     question: str = Field(min_length=1, max_length=2000)
     top_k: int = Field(default=5, ge=1, le=20)
+    sources: list[str] | None = None
+    mode: str | None = None
 
 
 class SourceRef(BaseModel):
+    number: int
     source: str
     page: int
     snippet: str
@@ -24,6 +27,8 @@ class SourceRef(BaseModel):
 
 class AskResponse(BaseModel):
     answer: str
+    answered: bool
+    cited: bool
     sources: list[SourceRef]
 
 

@@ -5,10 +5,10 @@ PDFs / notes -> loaders -> cleaning -> chunking -> embeddings -> ChromaDB
                                                                    |
 question -> RagService.search -> Retriever (vector | bm25 | hybrid) -> ranked chunks
                   |
-                  +-- (Phase 3) prompt -> Ollama -> cited answer, streamed
+                  +-- RagService.ask: relevance gate -> prompt -> Ollama -> answer with [n] citations
                   ^
                   |
-        FastAPI (/ingest, /documents, /health, later /ask)   CLI (ingest, search, inspect)
+        FastAPI (/ingest, /documents, /health, /ask)   CLI (ingest, search, ask, inspect)
                   ^
                   |
         React UI (web/)  --  live mode: calls the API
@@ -52,7 +52,7 @@ replace an existing file once they ingest successfully.
 | GET | `/health` | done |
 | GET | `/documents` | done |
 | POST | `/ingest` | done |
-| POST | `/ask` | stub (501), Phase 3 |
+| POST | `/ask` | done |
 
 ## Retrieval
 
@@ -72,3 +72,24 @@ replace an existing file once they ingest successfully.
 that mode. `min_score` is always a minimum cosine similarity, so it works in `vector` and
 `hybrid` modes and is refused in `bm25` mode. This is the threshold Phase 3 uses to decide
 that the notes do not cover a question.
+
+## Answering
+
+`RagService.ask` (generation code in `generation/`):
+
+1. **Gate:** retrieval runs with `min_score = VECTORNOTE_MIN_RELEVANCE` (a cosine threshold). With
+   an empty index or no passage above the threshold, a fixed reply is returned and the model is
+   never called. In `bm25` mode there is no cosine score, so the gate is skipped.
+2. **Prompt:** the system prompt tells the model to use only the numbered passages, to cite them
+   as `[n]`, and to reply `NOT_FOUND` when they do not contain the answer. The user message holds
+   the passages (`[1] file, page N` followed by the text, within a 6000-character budget) and the
+   question. Temperature is 0.1.
+3. **Parse:** `[n]` markers (including `[1, 2]` and `[1][2]`) are mapped back to file and page;
+   numbers outside the range are ignored as invented. `NOT_FOUND` becomes the same refusal reply
+   as the gate. If the model cited nothing, the result is marked `cited = false` and lists all
+   passages it was given, so the answer can still be checked.
+4. **Errors:** `OllamaUnavailableError` (not running, timeout) and `OllamaModelNotFoundError`
+   (`ollama pull <model>`) give one-line messages in the CLI and HTTP 503 from the API.
+
+Numeric citations were chosen over `[file, page]` text because small local models copy a number
+reliably but often garble file names; the API and CLI always map the numbers back to file and page.

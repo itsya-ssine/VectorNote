@@ -45,3 +45,29 @@ class SearchResult(BaseModel):
     score: float
     vector_score: float | None = None
     bm25_score: float | None = None
+
+
+class Citation(BaseModel):
+    """A numbered source passage an answer refers to as `[number]`."""
+
+    number: int = Field(ge=1)
+    source: str
+    page: int = Field(ge=1)
+    snippet: str
+    score: float
+
+
+class AskResult(BaseModel):
+    """The outcome of asking a question.
+
+    `answered` is False when the notes do not cover the question (the model was not
+    called, or it said it could not find the answer). `cited` is True when the answer
+    contains valid `[n]` markers; otherwise `citations` falls back to every passage
+    the model was given, so the reader can still check them.
+    """
+
+    answer: str
+    answered: bool
+    cited: bool = False
+    citations: list[Citation] = Field(default_factory=list)
+    context: list[SearchResult] = Field(default_factory=list)

@@ -11,6 +11,7 @@ from pathlib import Path
 from vectornote import __version__
 from vectornote.config import Settings
 from vectornote.embeddings.encoder import EmbedderUnavailableError
+from vectornote.generation import OllamaError
 from vectornote.ingestion.chunking import chunk_document
 from vectornote.ingestion.cleaning import clean_document
 from vectornote.ingestion.loaders import (
@@ -37,8 +38,13 @@ def build_parser() -> argparse.ArgumentParser:
     ingest.add_argument(
         "--prune", action="store_true", help="drop indexed files that left the data directory"
     )
-    ask = sub.add_parser("ask", help="Ask a question about your documents.")
+    ask = sub.add_parser("ask", help="Ask a question and get a cited answer.")
     ask.add_argument("question")
+    ask.add_argument("-k", "--top-k", type=int, default=None, help="passages given to the model")
+    ask.add_argument(
+        "--source", action="append", dest="sources", help="only use this file (repeatable)"
+    )
+    ask.add_argument("--mode", choices=MODES, default=None, help="vector, bm25 or hybrid")
     search = sub.add_parser("search", help="Find the most relevant passages for a question.")
     search.add_argument("query")
     search.add_argument("-k", "--top-k", type=int, default=None, help="number of results")
@@ -178,6 +184,29 @@ def _search(
     return 0
 
 
+def _ask(question: str, top_k: int | None, sources: list[str] | None, mode: str | None) -> int:
+    service = RagService(Settings())
+    if service.index_size() > 0:
+        indexed = service.indexed_sources()
+        unknown = [name for name in sources or [] if name not in indexed]
+        if unknown:
+            print(f"error: not indexed: {', '.join(unknown)}", file=sys.stderr)
+            print(f"indexed files: {', '.join(indexed)}", file=sys.stderr)
+            return 2
+    try:
+        result = service.ask(question, top_k, sources, mode)
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    print(result.answer)
+    if result.citations:
+        label = "Sources" if result.cited else "Related passages (the answer cited none)"
+        print(f"\n{label}:")
+        for citation in result.citations:
+            print(f"  [{citation.number}] {citation.source}, p. {citation.page}")
+    return 0
+
+
 def _ingest_file(service: RagService, path: Path, force: bool) -> IngestResult:
     try:
         return service.ingest_path(path, force=force)
@@ -193,7 +222,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0
     try:
         return _run(args)
-    except (EmbeddingModelMismatchError, EmbedderUnavailableError) as exc:
+    except (EmbeddingModelMismatchError, EmbedderUnavailableError, OllamaError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
 
@@ -205,6 +234,8 @@ def _run(args: argparse.Namespace) -> int:
         return _search(
             args.query, args.top_k, args.sources, args.min_score, args.mode, args.full
         )
+    if args.command == "ask":
+        return _ask(args.question, args.top_k, args.sources, args.mode)
     if args.command == "inspect":
         return _inspect(args.path, args.chars, args.chunks)
     if args.command == "serve":

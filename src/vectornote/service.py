@@ -26,7 +26,14 @@ from vectornote.ingestion.loaders import (
     list_supported_files,
     load_document,
 )
-from vectornote.models import SearchResult
+from vectornote.generation import ChatModel, OllamaClient
+from vectornote.generation.citations import extract_citations, is_not_found
+from vectornote.generation.prompts import (
+    build_messages,
+    refusal_message,
+    select_context,
+)
+from vectornote.models import AskResult, Citation, SearchResult
 from vectornote.retrieval import Retriever
 from vectornote.store import ChromaStore
 
@@ -70,10 +77,12 @@ class RagService:
         settings: Settings,
         embedder: Embedder | None = None,
         store: ChromaStore | None = None,
+        llm: ChatModel | None = None,
     ) -> None:
         self.settings = settings
         self._embedder = embedder
         self._store = store
+        self._llm = llm
         self._retriever: Retriever | None = None
         self._lock = threading.Lock()
 
@@ -88,6 +97,12 @@ class RagService:
         if self._store is None:
             self._store = ChromaStore(self.settings.chroma_dir, self.embedder.name)
         return self._store
+
+    @property
+    def llm(self) -> ChatModel:
+        if self._llm is None:
+            self._llm = OllamaClient(self.settings.ollama_url, self.settings.llm_model)
+        return self._llm
 
     @property
     def retriever(self) -> Retriever:
@@ -212,9 +227,55 @@ class RagService:
 
     # ---- question answering ----------------------------------------------
 
-    def ask(self, question: str, top_k: int) -> tuple[str, list[SearchResult]]:
-        """Answer a question and return the answer with its supporting chunks.
+    def ask(
+        self,
+        question: str,
+        top_k: int | None = None,
+        sources: Sequence[str] | None = None,
+        mode: str | None = None,
+    ) -> AskResult:
+        """Answer a question from the indexed documents, with numbered citations.
 
-        Implemented in Phase 3.
+        Passages whose cosine similarity is below `min_relevance` are not used. If
+        nothing relevant remains, or the model reports that the passages do not
+        contain the answer, the result has `answered=False` and no model call is
+        wasted on guessing.
         """
-        raise NotImplementedError
+        text = question.strip()
+        if not text:
+            raise ValueError("question must not be empty")
+        if self.index_size() == 0:
+            return AskResult(answer=refusal_message(text, "empty_index"), answered=False)
+
+        effective_mode = mode or self.settings.retrieval_mode
+        # The relevance gate is a cosine threshold, which keyword-only search cannot provide.
+        gate = None if effective_mode == "bm25" else self.settings.min_relevance
+        results = self.search(text, top_k, sources, min_score=gate, mode=mode)
+        if not results:
+            return AskResult(answer=refusal_message(text), answered=False)
+
+        context = select_context(results)
+        reply = self.llm.complete(build_messages(text, context))
+        if not reply or is_not_found(reply):
+            return AskResult(answer=refusal_message(text), answered=False, context=context)
+
+        numbers = extract_citations(reply, len(context))
+        cited = bool(numbers)
+        citation_numbers = numbers or list(range(1, len(context) + 1))
+        citations = [
+            self._citation(number, context[number - 1]) for number in citation_numbers
+        ]
+        return AskResult(
+            answer=reply, answered=True, cited=cited, citations=citations, context=context
+        )
+
+    @staticmethod
+    def _citation(number: int, result: SearchResult) -> Citation:
+        score = result.vector_score if result.vector_score is not None else result.score
+        return Citation(
+            number=number,
+            source=result.chunk.source,
+            page=result.chunk.page,
+            snippet=result.chunk.text[:300],
+            score=score,
+        )
