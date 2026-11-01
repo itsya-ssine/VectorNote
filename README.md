@@ -6,15 +6,16 @@ Offline, privacy-first RAG study assistant. Ingest your semester PDFs, slides an
 
 ## Status
 
-Work in progress. The full question-answering pipeline works from the command line and the API: ingest, hybrid search, and cited answers from a local LLM through Ollama. Streaming, conversation memory, evaluation and the live chat UI are next. See the [roadmap](#roadmap).
+Work in progress. The full question-answering pipeline works from the command line and the API: ingest, hybrid search, and cited answers from a local LLM through Ollama. Conversation memory, evaluation and the live chat UI are next. See the [roadmap](#roadmap).
 
 | Works today | Coming next |
 |---|---|
-| PDF / Markdown / text ingestion with cleaning | Streaming answers, conversation memory |
+| PDF / Markdown / text ingestion with cleaning | Conversation memory |
 | Sentence-aware chunking with page-level citations | Cited answers from a local LLM, streaming |
 | Incremental indexing (unchanged files are skipped) | Evaluation harness and benchmarks |
 | Vector, BM25 keyword and hybrid (RRF) search from the CLI | Live chat UI, Docker, Vercel demo |
 | Cited answers from a local LLM (`ask`, `POST /ask`), with an "I couldn't find it" path | |
+| Streaming answers word by word (CLI and Server-Sent Events) | |
 | FastAPI endpoints for upload, listing, health and questions | Reranking (optional) |
 
 ## How it works
@@ -76,7 +77,7 @@ npm run dev                                 # UI on http://localhost:3000
 | `vectornote search "<question>" [-k N] [--mode vector\|bm25\|hybrid] [--source FILE] [--min-score X] [--full]` | Show the most relevant passages with score, file and page. `--source` can be repeated. `--min-score` is a minimum cosine similarity (vector and hybrid modes). In hybrid mode each result also shows its cosine and BM25 scores. |
 | `vectornote inspect <file> [--chunks]` | Show how a file is loaded, cleaned and chunked. Use it to debug a bad PDF. |
 | `vectornote serve [--host] [--port] [--reload]` | Run the HTTP API. |
-| `vectornote ask "<question>" [-k N] [--mode ...] [--source FILE]` | Answer from your documents with numbered citations, followed by the list of sources (`[1] file, p. N`). Needs Ollama. |
+| `vectornote ask "<question>" [-k N] [--mode ...] [--source FILE] [--no-stream]` | Answer from your documents with numbered citations, printed word by word as the model writes it, followed by the list of sources (`[1] file, p. N`). `--no-stream` waits for the whole answer. Needs Ollama. |
 
 ## HTTP API
 
@@ -85,6 +86,7 @@ npm run dev                                 # UI on http://localhost:3000
 | `GET` | `/health` | done |
 | `GET` | `/documents` | done: files in `data/` |
 | `POST` | `/ingest` | done: upload a file and index it (415 for unsupported types, 422 for unreadable files) |
+| `POST` | `/ask/stream` | done: same request as `/ask`, answered as Server-Sent Events: many `token` events (`{"text"}`), then `done` (same JSON as `/ask`), or `error` (`{"detail"}`) if the model fails midway. Closing the connection stops the model. |
 | `POST` | `/ask` | done: `{question, top_k?, sources?, mode?}` returns `{answer, answered, cited, sources[]}`; 503 if Ollama is down or the model is missing |
 
 ## Configuration
@@ -149,7 +151,7 @@ docs/             architecture notes
   - [ ] Reranking (optional)
 - [ ] **Phase 3:** generation
   - [x] Cited answers, refusal path, `ask` command and `/ask` endpoint
-  - [ ] Streaming
+  - [x] Streaming
   - [ ] Conversation memory
 - [ ] **Phase 4:** evaluation (hit rate, MRR, faithfulness, latency)
 - [ ] **Phase 5:** live chat UI

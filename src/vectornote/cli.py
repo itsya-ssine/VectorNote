@@ -19,9 +19,9 @@ from vectornote.ingestion.loaders import (
     UnsupportedFileTypeError,
     load_document,
 )
-from vectornote.models import Document, SearchResult
+from vectornote.models import AskResult, Document, SearchResult
 from vectornote.retrieval import MODES
-from vectornote.service import IngestResult, RagService
+from vectornote.service import IngestResult, RagService, TokenEvent
 from vectornote.store import EmbeddingModelMismatchError
 
 
@@ -45,6 +45,9 @@ def build_parser() -> argparse.ArgumentParser:
         "--source", action="append", dest="sources", help="only use this file (repeatable)"
     )
     ask.add_argument("--mode", choices=MODES, default=None, help="vector, bm25 or hybrid")
+    ask.add_argument(
+        "--no-stream", action="store_true", help="wait for the whole answer instead of streaming"
+    )
     search = sub.add_parser("search", help="Find the most relevant passages for a question.")
     search.add_argument("query")
     search.add_argument("-k", "--top-k", type=int, default=None, help="number of results")
@@ -184,7 +187,13 @@ def _search(
     return 0
 
 
-def _ask(question: str, top_k: int | None, sources: list[str] | None, mode: str | None) -> int:
+def _ask(
+    question: str,
+    top_k: int | None,
+    sources: list[str] | None,
+    mode: str | None,
+    stream: bool,
+) -> int:
     service = RagService(Settings())
     if service.index_size() > 0:
         indexed = service.indexed_sources()
@@ -194,17 +203,45 @@ def _ask(question: str, top_k: int | None, sources: list[str] | None, mode: str 
             print(f"indexed files: {', '.join(indexed)}", file=sys.stderr)
             return 2
     try:
-        result = service.ask(question, top_k, sources, mode)
+        result = _answer(service, question, top_k, sources, mode, stream)
     except ValueError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
-    print(result.answer)
     if result.citations:
         label = "Sources" if result.cited else "Related passages (the answer cited none)"
         print(f"\n{label}:")
         for citation in result.citations:
             print(f"  [{citation.number}] {citation.source}, p. {citation.page}")
     return 0
+
+
+def _answer(
+    service: RagService,
+    question: str,
+    top_k: int | None,
+    sources: list[str] | None,
+    mode: str | None,
+    stream: bool,
+) -> AskResult:
+    """Print the answer (word by word when streaming) and return the final result."""
+    if not stream:
+        result = service.ask(question, top_k, sources, mode)
+        print(result.answer)
+        return result
+    printed = False
+    try:
+        for event in service.ask_stream(question, top_k, sources, mode):
+            if isinstance(event, TokenEvent):
+                print(event.text, end="", flush=True)
+                printed = True
+            else:
+                print() if printed else print(event.result.answer)
+                return event.result
+    except OllamaError:
+        if printed:
+            print()  # end the partial answer's line before the error message
+        raise
+    raise RuntimeError("the answer stream ended without a result")
 
 
 def _ingest_file(service: RagService, path: Path, force: bool) -> IngestResult:
@@ -235,7 +272,9 @@ def _run(args: argparse.Namespace) -> int:
             args.query, args.top_k, args.sources, args.min_score, args.mode, args.full
         )
     if args.command == "ask":
-        return _ask(args.question, args.top_k, args.sources, args.mode)
+        return _ask(
+            args.question, args.top_k, args.sources, args.mode, not args.no_stream
+        )
     if args.command == "inspect":
         return _inspect(args.path, args.chars, args.chunks)
     if args.command == "serve":

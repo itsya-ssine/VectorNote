@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import json
 import re
-from collections.abc import Mapping, Sequence
-from typing import Protocol
+from collections.abc import Generator, Mapping, Sequence
+from typing import Any, Protocol
 
 import httpx
+
+from vectornote.generation.streaming import ThinkFilter
 
 _THINK_BLOCK = re.compile(r"<think>.*?</think>", re.DOTALL)
 
@@ -28,6 +31,8 @@ class ChatModel(Protocol):
 
     def complete(self, messages: Sequence[Mapping[str, str]]) -> str: ...
 
+    def stream(self, messages: Sequence[Mapping[str, str]]) -> Generator[str, None, None]: ...
+
 
 class OllamaClient:
     def __init__(
@@ -46,27 +51,32 @@ class OllamaClient:
         self.num_ctx = num_ctx
         self._transport = transport
 
-    def complete(self, messages: Sequence[Mapping[str, str]]) -> str:
-        """Send a conversation and return the full reply (reasoning blocks removed)."""
-        payload = {
+    def _payload(self, messages: Sequence[Mapping[str, str]], stream: bool) -> dict[str, Any]:
+        return {
             "model": self.model,
             "messages": [dict(message) for message in messages],
-            "stream": False,
+            "stream": stream,
             "options": {"temperature": self.temperature, "num_ctx": self.num_ctx},
         }
+
+    def _unavailable(self, exc: httpx.HTTPError) -> OllamaUnavailableError:
+        if isinstance(exc, httpx.TimeoutException):
+            return OllamaUnavailableError(
+                f"Ollama did not answer within {self.timeout:.0f}s. "
+                "The model may still be loading, or it is too large for this machine."
+            )
+        return OllamaUnavailableError(
+            f"Cannot reach Ollama at {self.base_url}. Is it running? Start it with `ollama serve`."
+        )
+
+    def complete(self, messages: Sequence[Mapping[str, str]]) -> str:
+        """Send a conversation and return the full reply (reasoning blocks removed)."""
+        payload = self._payload(messages, stream=False)
         try:
             with httpx.Client(timeout=self.timeout, transport=self._transport) as client:
                 response = client.post(f"{self.base_url}/api/chat", json=payload)
-        except httpx.ConnectError as exc:
-            raise OllamaUnavailableError(
-                f"Cannot reach Ollama at {self.base_url}. "
-                "Is it running? Start it with `ollama serve`."
-            ) from exc
-        except httpx.TimeoutException as exc:
-            raise OllamaUnavailableError(
-                f"Ollama did not answer within {self.timeout:.0f}s. "
-                "The model may still be loading, or it is too large for this machine."
-            ) from exc
+        except (httpx.ConnectError, httpx.TimeoutException) as exc:
+            raise self._unavailable(exc) from exc
         if response.status_code == 404:
             raise OllamaModelNotFoundError(
                 f"Model '{self.model}' is not installed. Run: ollama pull {self.model}"
@@ -75,6 +85,43 @@ class OllamaClient:
             raise OllamaError(f"Ollama returned HTTP {response.status_code}: {response.text[:200]}")
         content = str(response.json()["message"]["content"])
         return _THINK_BLOCK.sub("", content).strip()
+
+    def stream(self, messages: Sequence[Mapping[str, str]]) -> Generator[str, None, None]:
+        """Yield the reply piece by piece as the model produces it.
+
+        Reasoning blocks are removed. Nothing is sent until the first piece is requested,
+        and closing the iterator early closes the connection, which stops the generation.
+        """
+        payload = self._payload(messages, stream=True)
+        visible = ThinkFilter()
+        try:
+            with httpx.Client(timeout=self.timeout, transport=self._transport) as client:
+                with client.stream("POST", f"{self.base_url}/api/chat", json=payload) as response:
+                    if response.status_code == 404:
+                        raise OllamaModelNotFoundError(
+                            f"Model '{self.model}' is not installed. Run: ollama pull {self.model}"
+                        )
+                    if response.is_error:
+                        body = response.read().decode("utf-8", errors="replace")
+                        raise OllamaError(
+                            f"Ollama returned HTTP {response.status_code}: {body[:200]}"
+                        )
+                    for line in response.iter_lines():
+                        if not line.strip():
+                            continue
+                        data = json.loads(line)
+                        if "error" in data:
+                            raise OllamaError(f"Ollama stopped the reply: {data['error']}")
+                        piece = visible.feed(str(data.get("message", {}).get("content", "")))
+                        if piece:
+                            yield piece
+                        if data.get("done"):
+                            break
+        except (httpx.ConnectError, httpx.TimeoutException) as exc:
+            raise self._unavailable(exc) from exc
+        rest = visible.finish()
+        if rest:
+            yield rest
 
     def chat(self, prompt: str) -> str:
         """Send a single user message (used by the smoke script)."""

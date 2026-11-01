@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from collections.abc import Iterator, Mapping, Sequence
+import json
+from collections.abc import Iterator, Sequence
 from pathlib import Path
 
 import pytest
@@ -11,27 +12,13 @@ from vectornote.api.deps import get_service
 from vectornote.cli import main
 from vectornote.config import Settings
 from vectornote.embeddings.hashing import HashingEmbedder
-from vectornote.generation import OllamaUnavailableError
+from vectornote.generation import OllamaError, OllamaUnavailableError
 from vectornote.generation.prompts import NOT_FOUND
-from vectornote.service import RagService
+from vectornote.service import DoneEvent, RagService, TokenEvent
+from tests.fakes import FakeLLM
 
 MUTEX = "A mutex gives mutual exclusion to a critical section."
 SUBNET = "A subnet mask separates the network and host parts of an address."
-
-
-class FakeLLM:
-    """Records the conversations it receives and replies with a canned answer."""
-
-    def __init__(self, reply: str = "A mutex gives mutual exclusion [1].") -> None:
-        self.reply = reply
-        self.error: Exception | None = None
-        self.calls: list[list[dict[str, str]]] = []
-
-    def complete(self, messages: Sequence[Mapping[str, str]]) -> str:
-        self.calls.append([dict(m) for m in messages])
-        if self.error:
-            raise self.error
-        return self.reply
 
 
 @pytest.fixture
@@ -297,3 +284,185 @@ def test_cli_ask_reports_ollama_problems(cli: FakeLLM, capsys: pytest.CaptureFix
     capsys.readouterr()
     assert main(["ask", QUESTION]) == 2
     assert "Cannot reach Ollama" in capsys.readouterr().err
+
+
+# ---- streaming: service -----------------------------------------------------
+
+
+def _tokens(events: Sequence[object]) -> str:
+    return "".join(e.text for e in events if isinstance(e, TokenEvent))
+
+
+def test_stream_yields_tokens_then_the_final_result(indexed: RagService) -> None:
+    events = list(indexed.ask_stream(QUESTION))
+    assert all(isinstance(e, TokenEvent) for e in events[:-1])
+    assert len(events) > 2
+    done = events[-1]
+    assert isinstance(done, DoneEvent)
+    assert _tokens(events[:-1]) == done.result.answer == "A mutex gives mutual exclusion [1]."
+    assert done.result.cited
+    assert [(c.number, c.source) for c in done.result.citations] == [(1, "os.txt")]
+
+
+def test_stream_and_ask_agree(indexed: RagService) -> None:
+    streamed = list(indexed.ask_stream(QUESTION))[-1]
+    assert isinstance(streamed, DoneEvent)
+    assert streamed.result == indexed.ask(QUESTION)
+
+
+def test_not_found_marker_is_never_streamed(indexed: RagService, llm: FakeLLM) -> None:
+    llm.reply = "NOT_FOUND - the passages say nothing about this"
+    events = list(indexed.ask_stream(QUESTION))
+    assert [type(e) for e in events] == [DoneEvent]
+    done = events[0]
+    assert isinstance(done, DoneEvent)
+    assert not done.result.answered
+    assert done.result.answer.startswith("I couldn't find")
+
+
+def test_questions_that_need_no_model_give_only_a_final_event(
+    indexed: RagService, llm: FakeLLM
+) -> None:
+    events = list(indexed.ask_stream("zebra giraffe safari"))
+    assert len(events) == 1
+    assert isinstance(events[0], DoneEvent)
+    assert not events[0].result.answered
+    assert llm.calls == []
+
+
+def test_empty_index_gives_only_a_final_event(service: RagService) -> None:
+    [event] = service.ask_stream(QUESTION)
+    assert isinstance(event, DoneEvent)
+    assert "index is empty" in event.result.answer
+
+
+def test_streamed_answer_starts_without_leading_whitespace(
+    indexed: RagService, llm: FakeLLM
+) -> None:
+    llm.reply = "  \nA mutex locks [1]."
+    events = list(indexed.ask_stream(QUESTION))
+    assert _tokens(events[:-1]) == "A mutex locks [1]."
+
+
+def test_stream_errors_surface_when_the_first_event_is_requested(
+    indexed: RagService, llm: FakeLLM
+) -> None:
+    with pytest.raises(ValueError, match="empty"):
+        next(indexed.ask_stream("  "))
+    llm.error = OllamaUnavailableError("Cannot reach Ollama")
+    with pytest.raises(OllamaUnavailableError):
+        next(indexed.ask_stream(QUESTION))
+
+
+def test_midstream_failure_keeps_the_tokens_already_sent(
+    indexed: RagService, llm: FakeLLM
+) -> None:
+    llm.fail_after = 2
+    stream = indexed.ask_stream(QUESTION)
+    assert isinstance(next(stream), TokenEvent)
+    assert isinstance(next(stream), TokenEvent)
+    with pytest.raises(OllamaError, match="crashed"):
+        next(stream)
+
+
+def test_closing_the_stream_stops_the_model(indexed: RagService, llm: FakeLLM) -> None:
+    stream = indexed.ask_stream(QUESTION)
+    next(stream)
+    assert not llm.stream_closed
+    stream.close()
+    assert llm.stream_closed
+
+
+# ---- streaming: API ---------------------------------------------------------
+
+
+def _parse_sse(text: str) -> list[tuple[str, dict[str, object]]]:
+    events: list[tuple[str, dict[str, object]]] = []
+    for block in text.strip().split("\n\n"):
+        lines = dict(line.split(": ", 1) for line in block.splitlines())
+        events.append((lines["event"], json.loads(lines["data"])))
+    return events
+
+
+def test_stream_endpoint_sends_tokens_then_done(client: TestClient) -> None:
+    r = client.post("/ask/stream", json={"question": QUESTION})
+    assert r.status_code == 200
+    assert r.headers["content-type"].startswith("text/event-stream")
+    assert r.headers["cache-control"] == "no-cache"
+    events = _parse_sse(r.text)
+    names = [name for name, _ in events]
+    assert names[-1] == "done"
+    assert set(names[:-1]) == {"token"}
+    text = "".join(str(data["text"]) for name, data in events if name == "token")
+    done = events[-1][1]
+    assert text == done["answer"] == "A mutex gives mutual exclusion [1]."
+    assert done["answered"] is True
+    sources = done["sources"]
+    assert isinstance(sources, list)
+    assert sources[0]["number"] == 1
+    assert sources[0]["source"] == "os.txt"
+
+
+def test_stream_endpoint_unanswered_question_is_a_single_done_event(client: TestClient) -> None:
+    events = _parse_sse(client.post("/ask/stream", json={"question": "zebra giraffe"}).text)
+    assert [name for name, _ in events] == ["done"]
+    assert events[0][1]["answered"] is False
+
+
+def test_stream_endpoint_http_errors_before_the_first_token(
+    client: TestClient, llm: FakeLLM
+) -> None:
+    assert client.post("/ask/stream", json={"question": ""}).status_code == 422
+    assert client.post("/ask/stream", json={"question": "mutex", "mode": "x"}).status_code == 422
+    llm.error = OllamaUnavailableError("Cannot reach Ollama at http://localhost:11434.")
+    r = client.post("/ask/stream", json={"question": QUESTION})
+    assert r.status_code == 503
+    assert "Cannot reach Ollama" in r.json()["detail"]
+
+
+def test_stream_endpoint_reports_a_failure_midway_as_an_error_event(
+    client: TestClient, llm: FakeLLM
+) -> None:
+    llm.fail_after = 2
+    events = _parse_sse(client.post("/ask/stream", json={"question": QUESTION}).text)
+    assert [name for name, _ in events] == ["token", "token", "error"]
+    assert "crashed" in str(events[-1][1]["detail"])
+    assert llm.stream_closed
+
+
+# ---- streaming: CLI ---------------------------------------------------------
+
+
+def test_cli_streams_by_default_and_can_wait_with_no_stream(
+    cli: FakeLLM, capsys: pytest.CaptureFixture[str]
+) -> None:
+    capsys.readouterr()
+    assert main(["ask", QUESTION]) == 0
+    streamed = capsys.readouterr().out
+    assert cli.used == ["stream"]
+    assert streamed.splitlines()[0] == "A mutex gives mutual exclusion [1]."
+
+    assert main(["ask", QUESTION, "--no-stream"]) == 0
+    waited = capsys.readouterr().out
+    assert cli.used == ["stream", "complete"]
+    assert waited == streamed
+
+
+def test_cli_prints_a_refusal_once(cli: FakeLLM, capsys: pytest.CaptureFixture[str]) -> None:
+    cli.reply = "NOT_FOUND"
+    capsys.readouterr()
+    assert main(["ask", QUESTION]) == 0
+    out = capsys.readouterr().out
+    assert out.count("couldn't find") == 1
+
+
+def test_cli_reports_a_midstream_failure_on_its_own_line(
+    cli: FakeLLM, capsys: pytest.CaptureFixture[str]
+) -> None:
+    cli.fail_after = 2
+    capsys.readouterr()
+    assert main(["ask", QUESTION]) == 2
+    captured = capsys.readouterr()
+    assert captured.out.endswith("\n")
+    assert captured.out.startswith("A mutex")
+    assert "crashed" in captured.err

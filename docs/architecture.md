@@ -8,7 +8,7 @@ question -> RagService.search -> Retriever (vector | bm25 | hybrid) -> ranked ch
                   +-- RagService.ask: relevance gate -> prompt -> Ollama -> answer with [n] citations
                   ^
                   |
-        FastAPI (/ingest, /documents, /health, /ask)   CLI (ingest, search, ask, inspect)
+        FastAPI (/ingest, /documents, /health, /ask, /ask/stream)   CLI (ingest, search, ask, inspect)
                   ^
                   |
         React UI (web/)  --  live mode: calls the API
@@ -53,6 +53,7 @@ replace an existing file once they ingest successfully.
 | GET | `/documents` | done |
 | POST | `/ingest` | done |
 | POST | `/ask` | done |
+| POST | `/ask/stream` | done (Server-Sent Events) |
 
 ## Retrieval
 
@@ -93,3 +94,35 @@ that the notes do not cover a question.
 
 Numeric citations were chosen over `[file, page]` text because small local models copy a number
 reliably but often garble file names; the API and CLI always map the numbers back to file and page.
+
+## Streaming
+
+`RagService.ask_stream` is a generator that yields `TokenEvent`s while the model writes and one
+final `DoneEvent` carrying the same `AskResult` that `ask` returns. `OllamaClient.stream` reads
+Ollama's newline-delimited JSON and yields only visible text.
+
+- `ThinkFilter` removes `<think>...</think>` blocks even when a tag is split across chunks.
+- `NotFoundGate` holds back the first few characters until it is clear that the reply is not the
+  `NOT_FOUND` marker, so the marker never flashes on screen. When it is the marker, no token is
+  sent and the `DoneEvent` carries the refusal text. The `done` answer is always authoritative.
+- Everything that can fail before the first token (blank question, unknown mode, Ollama down,
+  model missing) is raised when the first event is requested, so `/ask/stream` can answer with a
+  proper HTTP status (422 or 503) instead of an event.
+- A failure after streaming has started becomes an `error` event, because the status line has
+  already been sent.
+
+`/ask/stream` uses an **async** generator on purpose. When a client disconnects, Starlette
+cancels the response at an `await`, and the `finally` block closes the service generator, which
+closes the connection to Ollama and stops the generation. A plain (sync) generator is simply
+abandoned in that situation, and the model keeps computing for nobody. `tests/test_stream_disconnect.py`
+runs a real server to guard this.
+
+SSE wire format:
+
+```
+event: token
+data: {"text": "A mutex "}
+
+event: done
+data: {"answer": "...", "answered": true, "cited": true, "sources": [{"number": 1, ...}]}
+```
