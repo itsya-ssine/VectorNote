@@ -3,7 +3,7 @@
 ```
 PDFs / notes -> loaders -> cleaning -> chunking -> embeddings -> ChromaDB
                                                                    |
-question -> RagService.search -> Retriever (vector search) -> ranked chunks
+question -> RagService.search -> Retriever (vector | bm25 | hybrid) -> ranked chunks
                   |
                   +-- (Phase 3) prompt -> Ollama -> cited answer, streamed
                   ^
@@ -53,3 +53,22 @@ replace an existing file once they ingest successfully.
 | GET | `/documents` | done |
 | POST | `/ingest` | done |
 | POST | `/ask` | stub (501), Phase 3 |
+
+## Retrieval
+
+`retrieval/retriever.py` offers three modes, chosen per call or through `VECTORNOTE_RETRIEVAL_MODE`:
+
+- **vector:** cosine similarity of embeddings, from ChromaDB.
+- **bm25:** Okapi BM25 over every chunk (`retrieval/bm25.py`, no extra dependency). Text is
+  lowercased and accent-folded, with a small English and French stop list. The index lives in
+  memory and is rebuilt when the store's on-disk revision counter changes, so an `ingest` run in
+  another process is picked up.
+- **hybrid:** the top candidates of both rankers are merged with Reciprocal Rank Fusion
+  (`1 / (60 + rank)` per list, `retrieval/fusion.py`). Only ranks are used, so cosine and BM25
+  never need a common scale. Every hybrid result also carries its `vector_score` (cosine) and
+  `bm25_score`, fetched from the store or index when only one ranker found it.
+
+`SearchResult.score` is the score of the mode that produced it and is only comparable within
+that mode. `min_score` is always a minimum cosine similarity, so it works in `vector` and
+`hybrid` modes and is refused in `bm25` mode. This is the threshold Phase 3 uses to decide
+that the notes do not cover a question.

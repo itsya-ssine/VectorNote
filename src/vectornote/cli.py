@@ -18,7 +18,8 @@ from vectornote.ingestion.loaders import (
     UnsupportedFileTypeError,
     load_document,
 )
-from vectornote.models import Document
+from vectornote.models import Document, SearchResult
+from vectornote.retrieval import MODES
 from vectornote.service import IngestResult, RagService
 from vectornote.store import EmbeddingModelMismatchError
 
@@ -44,7 +45,15 @@ def build_parser() -> argparse.ArgumentParser:
     search.add_argument(
         "--source", action="append", dest="sources", help="only search this file (repeatable)"
     )
-    search.add_argument("--min-score", type=float, default=None, help="drop weaker matches")
+    search.add_argument(
+        "--mode",
+        choices=MODES,
+        default=None,
+        help="vector, bm25 or hybrid (default: VECTORNOTE_RETRIEVAL_MODE, else hybrid)",
+    )
+    search.add_argument(
+        "--min-score", type=float, default=None, help="drop matches below this cosine similarity"
+    )
     search.add_argument("--full", action="store_true", help="print the whole chunk text")
     inspect = sub.add_parser("inspect", help="Load and clean one file and show the result.")
     inspect.add_argument("path", type=Path)
@@ -127,8 +136,20 @@ def _ingest(paths: list[Path], force: bool, prune: bool) -> int:
     return 1 if counts["failed"] else 0
 
 
+def _components(result: SearchResult) -> str:
+    """In hybrid mode, show the two scores behind the fused score."""
+    if result.vector_score is None or result.bm25_score is None:
+        return ""
+    return f"  (cos {result.vector_score:.3f}, bm25 {result.bm25_score:.2f})"
+
+
 def _search(
-    query: str, top_k: int | None, sources: list[str] | None, min_score: float | None, full: bool
+    query: str,
+    top_k: int | None,
+    sources: list[str] | None,
+    min_score: float | None,
+    mode: str | None,
+    full: bool,
 ) -> int:
     service = RagService(Settings())
     if service.index_size() == 0:
@@ -141,7 +162,7 @@ def _search(
         print(f"indexed files: {', '.join(indexed)}", file=sys.stderr)
         return 2
     try:
-        results = service.search(query, top_k, sources, min_score)
+        results = service.search(query, top_k, sources, min_score, mode)
     except ValueError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
@@ -150,7 +171,8 @@ def _search(
         return 0
     for rank, result in enumerate(results, start=1):
         chunk = result.chunk
-        print(f"{rank:>2}. {result.score:.3f}  {chunk.source}, p. {chunk.page}")
+        location = f"{chunk.source}, p. {chunk.page}"
+        print(f"{rank:>2}. {result.score:.3f}  {location}{_components(result)}")
         body = chunk.text if full else chunk.text[:220].replace("\n", " / ")
         print("    " + body.replace("\n", "\n    "))
     return 0
@@ -180,7 +202,9 @@ def _run(args: argparse.Namespace) -> int:
     if args.command == "ingest":
         return _ingest(args.paths, args.force, args.prune)
     if args.command == "search":
-        return _search(args.query, args.top_k, args.sources, args.min_score, args.full)
+        return _search(
+            args.query, args.top_k, args.sources, args.min_score, args.mode, args.full
+        )
     if args.command == "inspect":
         return _inspect(args.path, args.chars, args.chunks)
     if args.command == "serve":
