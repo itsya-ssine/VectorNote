@@ -2,7 +2,16 @@
 
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import BaseModel, Field
+
+
+class ChatTurn(BaseModel):
+    """One earlier message of the conversation."""
+
+    role: Literal["user", "assistant"]
+    content: str = Field(max_length=8000)
 
 
 class Page(BaseModel):
@@ -60,6 +69,9 @@ class Citation(BaseModel):
 class AskResult(BaseModel):
     """The outcome of asking a question.
 
+    `standalone_question` is the question as it was searched for: the user's follow-up
+    rewritten to make sense without the conversation (identical when nothing changed).
+
     `answered` is False when the notes do not cover the question (the model was not
     called, or it said it could not find the answer). `cited` is True when the answer
     contains valid `[n]` markers; otherwise `citations` falls back to every passage
@@ -68,6 +80,7 @@ class AskResult(BaseModel):
 
     answer: str
     answered: bool
+    standalone_question: str = ""
     cited: bool = False
     citations: list[Citation] = Field(default_factory=list)
     context: list[SearchResult] = Field(default_factory=list)

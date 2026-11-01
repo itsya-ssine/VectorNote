@@ -29,13 +29,19 @@ from vectornote.ingestion.loaders import (
 )
 from vectornote.generation import ChatModel, OllamaClient
 from vectornote.generation.citations import extract_citations, is_not_found
+from vectornote.generation.rewrite import (
+    REWRITE_MAX_TOKENS,
+    build_rewrite_messages,
+    clean_rewrite,
+)
 from vectornote.generation.streaming import NotFoundGate
 from vectornote.generation.prompts import (
+    Refusal,
     build_messages,
     refusal_message,
     select_context,
 )
-from vectornote.models import AskResult, Citation, SearchResult
+from vectornote.models import AskResult, ChatTurn, Citation, SearchResult
 from vectornote.retrieval import Retriever
 from vectornote.store import ChromaStore
 
@@ -54,13 +60,20 @@ class TokenEvent:
 
 
 @dataclass(frozen=True)
+class QueryEvent:
+    """The follow-up question was rewritten; this is what is being searched for."""
+
+    question: str
+
+
+@dataclass(frozen=True)
 class DoneEvent:
     """The final result. `result.answer` is authoritative (it may differ from the tokens)."""
 
     result: AskResult
 
 
-AskEvent = TokenEvent | DoneEvent
+AskEvent = TokenEvent | QueryEvent | DoneEvent
 
 
 @dataclass(frozen=True)
@@ -252,15 +265,21 @@ class RagService:
         top_k: int | None = None,
         sources: Sequence[str] | None = None,
         mode: str | None = None,
+        history: Sequence[ChatTurn] | None = None,
     ) -> AskResult:
         """Answer a question from the indexed documents, with numbered citations.
+
+        `history` holds the earlier messages of the conversation. When it is given, the
+        question is first rewritten into a standalone one, so follow-ups such as
+        "explain that more" are searched for correctly.
 
         Passages whose cosine similarity is below `min_relevance` are not used. If
         nothing relevant remains, or the model reports that the passages do not
         contain the answer, the result has `answered=False` and no model call is
         wasted on guessing.
         """
-        early, context, text = self._prepare_answer(question, top_k, sources, mode)
+        text = self._standalone_question(question, history)
+        early, context = self._retrieve_for_answer(text, top_k, sources, mode)
         if early is not None:
             return early
         reply = self.llm.complete(build_messages(text, context))
@@ -272,15 +291,20 @@ class RagService:
         top_k: int | None = None,
         sources: Sequence[str] | None = None,
         mode: str | None = None,
+        history: Sequence[ChatTurn] | None = None,
     ) -> Generator[AskEvent, None, None]:
         """Like `ask`, but yields the answer piece by piece.
 
-        Yields `TokenEvent`s while the model writes, then one final `DoneEvent` with the
-        cited sources. When no model call is needed (or the model reports NOT_FOUND),
-        no tokens are yielded, only the `DoneEvent`. Closing the generator early stops
-        the model. Errors are raised when the first event is requested.
+        Yields a `QueryEvent` first when a follow-up was rewritten, then `TokenEvent`s
+        while the model writes, then one final `DoneEvent` with the cited sources. When no
+        model call is needed (or the model reports NOT_FOUND), no tokens are yielded, only
+        the `DoneEvent`. Closing the generator early stops the model. Errors are raised
+        when the first event is requested.
         """
-        early, context, text = self._prepare_answer(question, top_k, sources, mode)
+        text = self._standalone_question(question, history)
+        if text != question.strip():
+            yield QueryEvent(text)
+        early, context = self._retrieve_for_answer(text, top_k, sources, mode)
         if early is not None:
             yield DoneEvent(early)
             return
@@ -299,38 +323,59 @@ class RagService:
             yield TokenEvent(tail)
         yield DoneEvent(self._finish_answer("".join(parts), context, text))
 
-    def _prepare_answer(
-        self,
-        question: str,
-        top_k: int | None,
-        sources: Sequence[str] | None,
-        mode: str | None,
-    ) -> tuple[AskResult | None, list[SearchResult], str]:
-        """Retrieve the passages for a question, or return a fixed reply if there are none."""
+    def _standalone_question(self, question: str, history: Sequence[ChatTurn] | None) -> str:
+        """The question to search for: the follow-up rewritten using the conversation."""
         text = question.strip()
         if not text:
             raise ValueError("question must not be empty")
+        if not history or self.index_size() == 0:
+            return text  # nothing to resolve, or nothing to search (no model call wasted)
+        reply = self.llm.complete(
+            build_rewrite_messages(history, text), max_tokens=REWRITE_MAX_TOKENS
+        )
+        return clean_rewrite(reply, text)
+
+    def _retrieve_for_answer(
+        self,
+        text: str,
+        top_k: int | None,
+        sources: Sequence[str] | None,
+        mode: str | None,
+    ) -> tuple[AskResult | None, list[SearchResult]]:
+        """Retrieve the passages for a question, or return a fixed reply if there are none."""
         if self.index_size() == 0:
-            return AskResult(answer=refusal_message(text, "empty_index"), answered=False), [], text
+            return self._unanswered(text, "empty_index"), []
 
         effective_mode = mode or self.settings.retrieval_mode
         # The relevance gate is a cosine threshold, which keyword-only search cannot provide.
         gate = None if effective_mode == "bm25" else self.settings.min_relevance
         results = self.search(text, top_k, sources, min_score=gate, mode=mode)
         if not results:
-            return AskResult(answer=refusal_message(text), answered=False), [], text
-        return None, select_context(results), text
+            return self._unanswered(text, "not_found"), []
+        return None, select_context(results)
+
+    @staticmethod
+    def _unanswered(
+        text: str, reason: Refusal, context: list[SearchResult] | None = None
+    ) -> AskResult:
+        return AskResult(
+            answer=refusal_message(text, reason),
+            answered=False,
+            standalone_question=text,
+            context=context or [],
+        )
 
     def _finish_answer(self, reply: str, context: list[SearchResult], text: str) -> AskResult:
         """Turn the model's raw reply into an AskResult with citations."""
         reply = reply.strip()
         if not reply or is_not_found(reply):
-            return AskResult(answer=refusal_message(text), answered=False, context=context)
+            return self._unanswered(text, "not_found", context)
         numbers = extract_citations(reply, len(context))
         citation_numbers = numbers or list(range(1, len(context) + 1))
         return AskResult(
             answer=reply,
             answered=True,
+            standalone_question=text,
             cited=bool(numbers),
             citations=[self._citation(n, context[n - 1]) for n in citation_numbers],
             context=context,

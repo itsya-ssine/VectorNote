@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from pydantic import BaseModel, Field
 
+from vectornote.models import ChatTurn
+
 
 class HealthResponse(BaseModel):
     status: str
@@ -15,6 +17,7 @@ class AskRequest(BaseModel):
     top_k: int = Field(default=5, ge=1, le=20)
     sources: list[str] | None = None
     mode: str | None = None
+    history: list[ChatTurn] = Field(default_factory=list, max_length=40)
 
 
 class SourceRef(BaseModel):
@@ -28,6 +31,7 @@ class SourceRef(BaseModel):
 class AskResponse(BaseModel):
     answer: str
     answered: bool
+    standalone_question: str
     cited: bool
     sources: list[SourceRef]
 
