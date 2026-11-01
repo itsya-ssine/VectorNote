@@ -10,7 +10,8 @@ import hashlib
 import re
 import tempfile
 import threading
-from collections.abc import Iterator, Sequence
+from collections.abc import Generator, Iterator, Sequence
+from contextlib import closing
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
@@ -28,6 +29,7 @@ from vectornote.ingestion.loaders import (
 )
 from vectornote.generation import ChatModel, OllamaClient
 from vectornote.generation.citations import extract_citations, is_not_found
+from vectornote.generation.streaming import NotFoundGate
 from vectornote.generation.prompts import (
     build_messages,
     refusal_message,
@@ -42,6 +44,23 @@ ENCODE_BATCH = 64
 IngestStatus = Literal["added", "updated", "unchanged", "empty", "failed", "removed"]
 
 _UNSAFE = re.compile(r"[^\w .()\-]")
+
+
+@dataclass(frozen=True)
+class TokenEvent:
+    """A piece of the answer, ready to show."""
+
+    text: str
+
+
+@dataclass(frozen=True)
+class DoneEvent:
+    """The final result. `result.answer` is authoritative (it may differ from the tokens)."""
+
+    result: AskResult
+
+
+AskEvent = TokenEvent | DoneEvent
 
 
 @dataclass(frozen=True)
@@ -241,32 +260,80 @@ class RagService:
         contain the answer, the result has `answered=False` and no model call is
         wasted on guessing.
         """
+        early, context, text = self._prepare_answer(question, top_k, sources, mode)
+        if early is not None:
+            return early
+        reply = self.llm.complete(build_messages(text, context))
+        return self._finish_answer(reply, context, text)
+
+    def ask_stream(
+        self,
+        question: str,
+        top_k: int | None = None,
+        sources: Sequence[str] | None = None,
+        mode: str | None = None,
+    ) -> Generator[AskEvent, None, None]:
+        """Like `ask`, but yields the answer piece by piece.
+
+        Yields `TokenEvent`s while the model writes, then one final `DoneEvent` with the
+        cited sources. When no model call is needed (or the model reports NOT_FOUND),
+        no tokens are yielded, only the `DoneEvent`. Closing the generator early stops
+        the model. Errors are raised when the first event is requested.
+        """
+        early, context, text = self._prepare_answer(question, top_k, sources, mode)
+        if early is not None:
+            yield DoneEvent(early)
+            return
+        gate = NotFoundGate()
+        parts: list[str] = []
+        # `closing` guarantees the model's stream is closed (and generation stopped) as soon
+        # as this generator is closed, instead of whenever the garbage collector runs.
+        with closing(self.llm.stream(build_messages(text, context))) as pieces:
+            for piece in pieces:
+                parts.append(piece)
+                visible = gate.feed(piece)
+                if visible:
+                    yield TokenEvent(visible)
+        tail = gate.finish()
+        if tail:
+            yield TokenEvent(tail)
+        yield DoneEvent(self._finish_answer("".join(parts), context, text))
+
+    def _prepare_answer(
+        self,
+        question: str,
+        top_k: int | None,
+        sources: Sequence[str] | None,
+        mode: str | None,
+    ) -> tuple[AskResult | None, list[SearchResult], str]:
+        """Retrieve the passages for a question, or return a fixed reply if there are none."""
         text = question.strip()
         if not text:
             raise ValueError("question must not be empty")
         if self.index_size() == 0:
-            return AskResult(answer=refusal_message(text, "empty_index"), answered=False)
+            return AskResult(answer=refusal_message(text, "empty_index"), answered=False), [], text
 
         effective_mode = mode or self.settings.retrieval_mode
         # The relevance gate is a cosine threshold, which keyword-only search cannot provide.
         gate = None if effective_mode == "bm25" else self.settings.min_relevance
         results = self.search(text, top_k, sources, min_score=gate, mode=mode)
         if not results:
-            return AskResult(answer=refusal_message(text), answered=False)
+            return AskResult(answer=refusal_message(text), answered=False), [], text
+        return None, select_context(results), text
 
-        context = select_context(results)
-        reply = self.llm.complete(build_messages(text, context))
+    def _finish_answer(self, reply: str, context: list[SearchResult], text: str) -> AskResult:
+        """Turn the model's raw reply into an AskResult with citations."""
+        reply = reply.strip()
         if not reply or is_not_found(reply):
             return AskResult(answer=refusal_message(text), answered=False, context=context)
-
         numbers = extract_citations(reply, len(context))
-        cited = bool(numbers)
         citation_numbers = numbers or list(range(1, len(context) + 1))
-        citations = [
-            self._citation(number, context[number - 1]) for number in citation_numbers
-        ]
         return AskResult(
-            answer=reply, answered=True, cited=cited, citations=citations, context=context
+            answer=reply,
+            answered=True,
+            cited=bool(numbers),
+            citations=[self._citation(n, context[n - 1]) for n in citation_numbers],
+            context=context,
         )
 
     @staticmethod
