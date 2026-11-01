@@ -128,6 +128,20 @@ def test_complete_sends_the_conversation_and_strips_reasoning() -> None:
     assert payload["options"] == {"temperature": 0.1, "num_ctx": 4096}
 
 
+def test_max_tokens_becomes_num_predict_only_when_given() -> None:
+    options: list[dict[str, object]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        options.append(json.loads(request.content)["options"])
+        return httpx.Response(200, json={"message": {"content": "ok"}})
+
+    client = _client(httpx.MockTransport(handler))
+    client.complete([{"role": "user", "content": "hi"}])
+    client.complete([{"role": "user", "content": "hi"}], max_tokens=64)
+    assert "num_predict" not in options[0]
+    assert options[1]["num_predict"] == 64
+
+
 def test_chat_wraps_a_single_prompt() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         assert json.loads(request.content)["messages"] == [{"role": "user", "content": "hello"}]

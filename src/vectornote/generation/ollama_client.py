@@ -29,7 +29,9 @@ class OllamaModelNotFoundError(OllamaError):
 class ChatModel(Protocol):
     """Anything that can complete a chat conversation."""
 
-    def complete(self, messages: Sequence[Mapping[str, str]]) -> str: ...
+    def complete(
+        self, messages: Sequence[Mapping[str, str]], max_tokens: int | None = None
+    ) -> str: ...
 
     def stream(self, messages: Sequence[Mapping[str, str]]) -> Generator[str, None, None]: ...
 
@@ -51,12 +53,20 @@ class OllamaClient:
         self.num_ctx = num_ctx
         self._transport = transport
 
-    def _payload(self, messages: Sequence[Mapping[str, str]], stream: bool) -> dict[str, Any]:
+    def _payload(
+        self,
+        messages: Sequence[Mapping[str, str]],
+        stream: bool,
+        max_tokens: int | None = None,
+    ) -> dict[str, Any]:
+        options: dict[str, Any] = {"temperature": self.temperature, "num_ctx": self.num_ctx}
+        if max_tokens is not None:
+            options["num_predict"] = max_tokens
         return {
             "model": self.model,
             "messages": [dict(message) for message in messages],
             "stream": stream,
-            "options": {"temperature": self.temperature, "num_ctx": self.num_ctx},
+            "options": options,
         }
 
     def _unavailable(self, exc: httpx.HTTPError) -> OllamaUnavailableError:
@@ -69,9 +79,14 @@ class OllamaClient:
             f"Cannot reach Ollama at {self.base_url}. Is it running? Start it with `ollama serve`."
         )
 
-    def complete(self, messages: Sequence[Mapping[str, str]]) -> str:
-        """Send a conversation and return the full reply (reasoning blocks removed)."""
-        payload = self._payload(messages, stream=False)
+    def complete(
+        self, messages: Sequence[Mapping[str, str]], max_tokens: int | None = None
+    ) -> str:
+        """Send a conversation and return the full reply (reasoning blocks removed).
+
+        `max_tokens` caps the length of the reply (used for short utility calls).
+        """
+        payload = self._payload(messages, stream=False, max_tokens=max_tokens)
         try:
             with httpx.Client(timeout=self.timeout, transport=self._transport) as client:
                 response = client.post(f"{self.base_url}/api/chat", json=payload)

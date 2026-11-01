@@ -25,7 +25,7 @@ from vectornote.config import Settings
 from vectornote.generation import OllamaError
 from vectornote.ingestion.loaders import DocumentLoadError, UnsupportedFileTypeError
 from vectornote.models import AskResult
-from vectornote.service import AskEvent, RagService, TokenEvent
+from vectornote.service import AskEvent, QueryEvent, RagService, TokenEvent
 
 router = APIRouter()
 
@@ -69,6 +69,7 @@ def _response(result: AskResult) -> AskResponse:
     return AskResponse(
         answer=result.answer,
         answered=result.answered,
+        standalone_question=result.standalone_question,
         cited=result.cited,
         sources=[
             SourceRef(
@@ -87,7 +88,7 @@ def _response(result: AskResult) -> AskResponse:
 def ask(body: AskRequest, service: ServiceDep) -> AskResponse:
     """Answer a question from the indexed documents, with numbered source citations."""
     try:
-        result = service.ask(body.question, body.top_k, body.sources, body.mode)
+        result = service.ask(body.question, body.top_k, body.sources, body.mode, body.history)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except OllamaError as exc:
@@ -102,6 +103,8 @@ def _sse(event: str, data: dict[str, object]) -> str:
 def _encode(event: AskEvent) -> str:
     if isinstance(event, TokenEvent):
         return _sse("token", {"text": event.text})
+    if isinstance(event, QueryEvent):
+        return _sse("query", {"question": event.question})
     return _sse("done", _response(event.result).model_dump())
 
 
@@ -109,13 +112,16 @@ def _encode(event: AskEvent) -> str:
 async def ask_stream(body: AskRequest, service: ServiceDep) -> StreamingResponse:
     """Same as `/ask`, as a Server-Sent Events stream.
 
-    Events: `token` (`{"text"}`, many), then `done` (the same JSON as `/ask`), or `error`
+    Events: `query` (`{"question"}`, only when a follow-up was rewritten), `token`
+    (`{"text"}`, many), then `done` (the same JSON as `/ask`), or `error`
     (`{"detail"}`) if the model fails midway. Problems that exist before the first token
     (bad input, Ollama down, model missing) are normal HTTP errors, as for `/ask`.
 
     If the client disconnects, the model's stream is closed, which stops the generation.
     """
-    events = service.ask_stream(body.question, body.top_k, body.sources, body.mode)
+    events = service.ask_stream(
+        body.question, body.top_k, body.sources, body.mode, body.history
+    )
     advance = partial(next, events, None)  # blocking: always run in a worker thread
     try:
         first = await run_in_threadpool(advance)

@@ -8,7 +8,7 @@ question -> RagService.search -> Retriever (vector | bm25 | hybrid) -> ranked ch
                   +-- RagService.ask: relevance gate -> prompt -> Ollama -> answer with [n] citations
                   ^
                   |
-        FastAPI (/ingest, /documents, /health, /ask, /ask/stream)   CLI (ingest, search, ask, inspect)
+        FastAPI (/ingest, /documents, /health, /ask, /ask/stream)   CLI (ingest, search, ask, chat, inspect)
                   ^
                   |
         React UI (web/)  --  live mode: calls the API
@@ -76,7 +76,7 @@ that the notes do not cover a question.
 
 ## Answering
 
-`RagService.ask` (generation code in `generation/`):
+`RagService.ask` (generation code in `generation/`; with a `history`, step 0 is the follow-up rewrite described under Conversation memory):
 
 1. **Gate:** retrieval runs with `min_score = VECTORNOTE_MIN_RELEVANCE` (a cosine threshold). With
    an empty index or no passage above the threshold, a fixed reply is returned and the model is
@@ -126,3 +126,27 @@ data: {"text": "A mutex "}
 event: done
 data: {"answer": "...", "answered": true, "cited": true, "sources": [{"number": 1, ...}]}
 ```
+
+## Conversation memory
+
+The server is stateless: the client sends the earlier messages (`history`, at most 40, each
+`user` or `assistant`) with every request, and the CLI `chat` command keeps them in memory.
+
+When `history` is not empty and the index is not empty, `RagService` first asks the model to
+rewrite the follow-up as a standalone question (`generation/rewrite.py`):
+
+1. `trim_history` keeps the latest 6 messages, strips `[n]` citation markers and cuts each
+   message to 600 characters, so the call stays small.
+2. A short call (`max_tokens = 128`) with a system prompt that says: replace pronouns and vague
+   references, keep the language of the follow-up, return it unchanged if already standalone,
+   output only the question.
+3. `clean_rewrite` accepts the reply only if it looks like a question: first line only, labels
+   such as "Standalone question:" and quotes removed; an empty reply, `NOT_FOUND` or anything over
+   300 characters (the model answering instead of rewriting) falls back to the original question.
+
+The standalone question is what retrieval, the relevance gate, the answer prompt and the
+refusal language use. `AskResult.standalone_question` and the API's `standalone_question` expose
+it, and the stream sends a `query` event before the first token when it differs from what the
+user typed, so a UI can show "Searching for: ...". The rewrite costs one extra model call, only
+on follow-up turns. A failure of that call is an ordinary Ollama error (503), not silently ignored.
+Unanswered turns are not added to the history by the `chat` command.

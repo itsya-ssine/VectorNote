@@ -6,17 +6,18 @@ Offline, privacy-first RAG study assistant. Ingest your semester PDFs, slides an
 
 ## Status
 
-Work in progress. The full question-answering pipeline works from the command line and the API: ingest, hybrid search, and cited answers from a local LLM through Ollama. Conversation memory, evaluation and the live chat UI are next. See the [roadmap](#roadmap).
+Work in progress. The full question-answering pipeline works from the command line and the API: ingest, hybrid search, and cited answers from a local LLM through Ollama. Evaluation and the live chat UI are next. See the [roadmap](#roadmap).
 
 | Works today | Coming next |
 |---|---|
-| PDF / Markdown / text ingestion with cleaning | Conversation memory |
+| PDF / Markdown / text ingestion with cleaning | Evaluation harness and benchmarks |
 | Sentence-aware chunking with page-level citations | Cited answers from a local LLM, streaming |
-| Incremental indexing (unchanged files are skipped) | Evaluation harness and benchmarks |
-| Vector, BM25 keyword and hybrid (RRF) search from the CLI | Live chat UI, Docker, Vercel demo |
+| Incremental indexing (unchanged files are skipped) | Live chat UI, Docker, Vercel demo |
+| Vector, BM25 keyword and hybrid (RRF) search from the CLI | Reranking (optional) |
 | Cited answers from a local LLM (`ask`, `POST /ask`), with an "I couldn't find it" path | |
 | Streaming answers word by word (CLI and Server-Sent Events) | |
-| FastAPI endpoints for upload, listing, health and questions | Reranking (optional) |
+| Conversation memory: follow-ups like "explain that more" are rewritten before searching (`chat`) | |
+| FastAPI endpoints for upload, listing, health and questions | |
 
 ## How it works
 
@@ -32,6 +33,7 @@ PDFs / notes -> load -> clean -> chunk -> embed -> ChromaDB
 - **Cleaning** removes running headers, footers and page numbers, fixes ligatures and hyphenated line breaks, and keeps the original page numbers.
 - **Chunking** never crosses a page, so every chunk maps to one `[file, page]` citation. Chunk IDs are stable, and files are tracked by content hash.
 - **Answers are grounded:** the model only sees the numbered passages that passed a relevance check (`VECTORNOTE_MIN_RELEVANCE`, a minimum cosine similarity). It must cite them as `[1]`, `[2]`, and the citations are mapped back to file and page. If nothing relevant is found, or the model says the passages do not contain the answer, you get "I couldn't find it in your documents" (in French if you asked in French) and no answer is made up.
+- **Conversations work:** a follow-up like "explain that more" is first rewritten by the model into a standalone question using the latest messages (citations stripped, long messages cut), and that is what gets searched and answered. If the rewrite looks wrong (empty, too long, an answer instead of a question) the original question is used. The server stores nothing; clients send the history with each request.
 - **Search has three modes:** `vector` (embeddings, understands paraphrases), `bm25` (exact words, acronyms, identifiers) and `hybrid` (default: both, merged with Reciprocal Rank Fusion, so a passage that ranks well in both lists wins). The keyword index is rebuilt automatically when the index changes, even if another process (such as the CLI) changed it.
 - **Indexing is incremental:** re-running `ingest` skips unchanged files and re-indexes edited ones. An edit replaces the old chunks only after the new ones were embedded successfully.
 
@@ -54,6 +56,9 @@ uv run vectornote search "what are the four conditions for deadlock?"
 # 3. Ask questions (needs Ollama: https://ollama.com)
 ollama pull llama3.2:3b
 uv run vectornote ask "What are the four conditions for deadlock?"
+
+# 4. Or have a conversation: follow-up questions work
+uv run vectornote chat
 ```
 
 The first `ingest` downloads the embedding model once (about 90 MB) into the Hugging Face cache. After that you can set `HF_HUB_OFFLINE=1` to guarantee nothing touches the network.
@@ -75,6 +80,7 @@ npm run dev                                 # UI on http://localhost:3000
 |---|---|
 | `vectornote ingest [paths...] [--force] [--prune]` | Index files or folders (default: `data/`). `--force` re-indexes unchanged files. `--prune` removes files that left `data/` from the index. |
 | `vectornote search "<question>" [-k N] [--mode vector\|bm25\|hybrid] [--source FILE] [--min-score X] [--full]` | Show the most relevant passages with score, file and page. `--source` can be repeated. `--min-score` is a minimum cosine similarity (vector and hybrid modes). In hybrid mode each result also shows its cosine and BM25 scores. |
+| `vectornote chat [-k N] [--mode ...] [--source FILE]` | Interactive conversation with your documents. Follow-ups such as "explain that more" are rewritten into standalone questions first, and the rewrite is shown as `(searching for: ...)`. `/reset` forgets the conversation, `/exit` quits. Needs Ollama. |
 | `vectornote inspect <file> [--chunks]` | Show how a file is loaded, cleaned and chunked. Use it to debug a bad PDF. |
 | `vectornote serve [--host] [--port] [--reload]` | Run the HTTP API. |
 | `vectornote ask "<question>" [-k N] [--mode ...] [--source FILE] [--no-stream]` | Answer from your documents with numbered citations, printed word by word as the model writes it, followed by the list of sources (`[1] file, p. N`). `--no-stream` waits for the whole answer. Needs Ollama. |
@@ -86,8 +92,8 @@ npm run dev                                 # UI on http://localhost:3000
 | `GET` | `/health` | done |
 | `GET` | `/documents` | done: files in `data/` |
 | `POST` | `/ingest` | done: upload a file and index it (415 for unsupported types, 422 for unreadable files) |
-| `POST` | `/ask/stream` | done: same request as `/ask`, answered as Server-Sent Events: many `token` events (`{"text"}`), then `done` (same JSON as `/ask`), or `error` (`{"detail"}`) if the model fails midway. Closing the connection stops the model. |
-| `POST` | `/ask` | done: `{question, top_k?, sources?, mode?}` returns `{answer, answered, cited, sources[]}`; 503 if Ollama is down or the model is missing |
+| `POST` | `/ask/stream` | done: same request as `/ask`, answered as Server-Sent Events: a `query` event (`{"question"}`) when a follow-up was rewritten, many `token` events (`{"text"}`), then `done` (same JSON as `/ask`), or `error` (`{"detail"}`) if the model fails midway. Closing the connection stops the model. |
+| `POST` | `/ask` | done: `{question, top_k?, sources?, mode?, history?}` where `history` is the earlier messages `[{role: "user"|"assistant", content}]` (the server keeps no conversation state; the client sends it each time) returns `{answer, answered, standalone_question, cited, sources[]}`; 503 if Ollama is down or the model is missing |
 
 ## Configuration
 
@@ -149,10 +155,10 @@ docs/             architecture notes
   - [x] Vector search
   - [x] BM25 and hybrid search
   - [ ] Reranking (optional)
-- [ ] **Phase 3:** generation
+- [x] **Phase 3:** generation
   - [x] Cited answers, refusal path, `ask` command and `/ask` endpoint
   - [x] Streaming
-  - [ ] Conversation memory
+  - [x] Conversation memory
 - [ ] **Phase 4:** evaluation (hit rate, MRR, faithfulness, latency)
 - [ ] **Phase 5:** live chat UI
 - [ ] **Phase 6:** Vercel demo

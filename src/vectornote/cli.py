@@ -19,9 +19,9 @@ from vectornote.ingestion.loaders import (
     UnsupportedFileTypeError,
     load_document,
 )
-from vectornote.models import AskResult, Document, SearchResult
+from vectornote.models import AskResult, ChatTurn, Document, SearchResult
 from vectornote.retrieval import MODES
-from vectornote.service import IngestResult, RagService, TokenEvent
+from vectornote.service import IngestResult, QueryEvent, RagService, TokenEvent
 from vectornote.store import EmbeddingModelMismatchError
 
 
@@ -38,6 +38,12 @@ def build_parser() -> argparse.ArgumentParser:
     ingest.add_argument(
         "--prune", action="store_true", help="drop indexed files that left the data directory"
     )
+    chat = sub.add_parser("chat", help="Talk to your documents; follow-up questions work.")
+    chat.add_argument("-k", "--top-k", type=int, default=None, help="passages per question")
+    chat.add_argument(
+        "--source", action="append", dest="sources", help="only use this file (repeatable)"
+    )
+    chat.add_argument("--mode", choices=MODES, default=None, help="vector, bm25 or hybrid")
     ask = sub.add_parser("ask", help="Ask a question and get a cited answer.")
     ask.add_argument("question")
     ask.add_argument("-k", "--top-k", type=int, default=None, help="passages given to the model")
@@ -187,6 +193,26 @@ def _search(
     return 0
 
 
+def _check_sources(service: RagService, sources: list[str] | None) -> int | None:
+    """Return an exit code if a requested source is not indexed, else None."""
+    indexed = service.indexed_sources()
+    unknown = [name for name in sources or [] if name not in indexed]
+    if not unknown:
+        return None
+    print(f"error: not indexed: {', '.join(unknown)}", file=sys.stderr)
+    print(f"indexed files: {', '.join(indexed)}", file=sys.stderr)
+    return 2
+
+
+def _print_sources(result: AskResult) -> None:
+    if not result.citations:
+        return
+    label = "Sources" if result.cited else "Related passages (the answer cited none)"
+    print(f"\n{label}:")
+    for citation in result.citations:
+        print(f"  [{citation.number}] {citation.source}, p. {citation.page}")
+
+
 def _ask(
     question: str,
     top_k: int | None,
@@ -196,23 +222,20 @@ def _ask(
 ) -> int:
     service = RagService(Settings())
     if service.index_size() > 0:
-        indexed = service.indexed_sources()
-        unknown = [name for name in sources or [] if name not in indexed]
-        if unknown:
-            print(f"error: not indexed: {', '.join(unknown)}", file=sys.stderr)
-            print(f"indexed files: {', '.join(indexed)}", file=sys.stderr)
-            return 2
+        failure = _check_sources(service, sources)
+        if failure is not None:
+            return failure
     try:
         result = _answer(service, question, top_k, sources, mode, stream)
     except ValueError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
-    if result.citations:
-        label = "Sources" if result.cited else "Related passages (the answer cited none)"
-        print(f"\n{label}:")
-        for citation in result.citations:
-            print(f"  [{citation.number}] {citation.source}, p. {citation.page}")
+    _print_sources(result)
     return 0
+
+
+def _searching(question: str) -> str:
+    return f"(searching for: {question})"
 
 
 def _answer(
@@ -222,16 +245,21 @@ def _answer(
     sources: list[str] | None,
     mode: str | None,
     stream: bool,
+    history: list[ChatTurn] | None = None,
 ) -> AskResult:
     """Print the answer (word by word when streaming) and return the final result."""
     if not stream:
-        result = service.ask(question, top_k, sources, mode)
+        result = service.ask(question, top_k, sources, mode, history)
+        if result.standalone_question != question.strip():
+            print(_searching(result.standalone_question))
         print(result.answer)
         return result
     printed = False
     try:
-        for event in service.ask_stream(question, top_k, sources, mode):
-            if isinstance(event, TokenEvent):
+        for event in service.ask_stream(question, top_k, sources, mode, history):
+            if isinstance(event, QueryEvent):
+                print(_searching(event.question))
+            elif isinstance(event, TokenEvent):
                 print(event.text, end="", flush=True)
                 printed = True
             else:
@@ -242,6 +270,46 @@ def _answer(
             print()  # end the partial answer's line before the error message
         raise
     raise RuntimeError("the answer stream ended without a result")
+
+
+def _chat(top_k: int | None, sources: list[str] | None, mode: str | None) -> int:
+    service = RagService(Settings())
+    if service.index_size() == 0:
+        print("The index is empty. Run `vectornote ingest` first.", file=sys.stderr)
+        return 1
+    failure = _check_sources(service, sources)
+    if failure is not None:
+        return failure
+    print("VectorNote chat. Ask about your documents.")
+    print("Follow-up questions work. /reset forgets the conversation, /exit quits.\n")
+    history: list[ChatTurn] = []
+    while True:
+        try:
+            question = input("you> ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print()
+            return 0
+        if not question:
+            continue
+        if question in ("/exit", "/quit"):
+            return 0
+        if question == "/reset":
+            history.clear()
+            print("(conversation cleared)")
+            continue
+        try:
+            result = _answer(service, question, top_k, sources, mode, True, history)
+        except (ValueError, OllamaError) as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            continue
+        _print_sources(result)
+        print()
+        if result.answered:
+            history += [
+                ChatTurn(role="user", content=question),
+                ChatTurn(role="assistant", content=result.answer),
+            ]
+            del history[:-12]  # the rewriter only looks at the latest messages anyway
 
 
 def _ingest_file(service: RagService, path: Path, force: bool) -> IngestResult:
@@ -271,6 +339,8 @@ def _run(args: argparse.Namespace) -> int:
         return _search(
             args.query, args.top_k, args.sources, args.min_score, args.mode, args.full
         )
+    if args.command == "chat":
+        return _chat(args.top_k, args.sources, args.mode)
     if args.command == "ask":
         return _ask(
             args.question, args.top_k, args.sources, args.mode, not args.no_stream
