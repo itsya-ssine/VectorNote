@@ -37,11 +37,6 @@ def test_documents_lists_data_dir(client: TestClient, tmp_path: Path) -> None:
     assert r.json() == [{"name": "notes.md", "size_bytes": 5}]
 
 
-def test_ask_not_implemented_yet(client: TestClient) -> None:
-    r = client.post("/ask", json={"question": "What is a mutex?"})
-    assert r.status_code == 501
-
-
 def test_ask_validates_input(client: TestClient) -> None:
     r = client.post("/ask", json={"question": ""})
     assert r.status_code == 422

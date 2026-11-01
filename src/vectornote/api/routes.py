@@ -17,6 +17,7 @@ from vectornote.api.schemas import (
     SourceRef,
 )
 from vectornote.config import Settings
+from vectornote.generation import OllamaError
 from vectornote.ingestion.loaders import DocumentLoadError, UnsupportedFileTypeError
 from vectornote.service import RagService
 
@@ -60,17 +61,25 @@ def ingest(file: UploadFile, service: ServiceDep) -> IngestResponse:
 
 @router.post("/ask", response_model=AskResponse)
 def ask(body: AskRequest, service: ServiceDep) -> AskResponse:
+    """Answer a question from the indexed documents, with numbered source citations."""
     try:
-        answer, results = service.ask(body.question, body.top_k)
-    except NotImplementedError:
-        raise HTTPException(status_code=501, detail="Question answering is not implemented yet.")
-    sources = [
-        SourceRef(
-            source=r.chunk.source,
-            page=r.chunk.page,
-            snippet=r.chunk.text[:300],
-            score=r.score,
-        )
-        for r in results
-    ]
-    return AskResponse(answer=answer, sources=sources)
+        result = service.ask(body.question, body.top_k, body.sources, body.mode)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except OllamaError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    return AskResponse(
+        answer=result.answer,
+        answered=result.answered,
+        cited=result.cited,
+        sources=[
+            SourceRef(
+                number=c.number,
+                source=c.source,
+                page=c.page,
+                snippet=c.snippet,
+                score=c.score,
+            )
+            for c in result.citations
+        ],
+    )

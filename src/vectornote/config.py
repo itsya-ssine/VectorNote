@@ -25,6 +25,7 @@ class Settings:
     data_dir: Path = field(default_factory=lambda: Path(_env("DATA_DIR", "data")))
     chroma_dir: Path = field(default_factory=lambda: Path(_env("CHROMA_DIR", "chroma_db")))
     retrieval_mode: str = field(default_factory=lambda: _env("RETRIEVAL_MODE", "hybrid"))
+    min_relevance: float = field(default_factory=lambda: float(_env("MIN_RELEVANCE", "0.25")))
     chunk_size: int = 800
     chunk_overlap: int = 100
     top_k: int = 5
