@@ -11,6 +11,13 @@ from pathlib import Path
 from vectornote import __version__
 from vectornote.config import Settings
 from vectornote.embeddings.encoder import EmbedderUnavailableError
+from vectornote.evaluation.dataset import (
+    DatasetError,
+    check_questions,
+    load_questions,
+    write_questions,
+)
+from vectornote.evaluation.scaffold import draft_questions, sample_chunks
 from vectornote.generation import OllamaError
 from vectornote.ingestion.chunking import chunk_document
 from vectornote.ingestion.cleaning import clean_document
@@ -38,6 +45,22 @@ def build_parser() -> argparse.ArgumentParser:
     ingest.add_argument(
         "--prune", action="store_true", help="drop indexed files that left the data directory"
     )
+    evaluate = sub.add_parser("eval", help="Build and check the evaluation question set.")
+    eval_sub = evaluate.add_subparsers(dest="eval_command", required=True)
+    scaffold = eval_sub.add_parser(
+        "scaffold", help="Draft a question file that points at real pages of your documents."
+    )
+    scaffold.add_argument("-n", "--count", type=int, default=40, help="number of drafts")
+    scaffold.add_argument("--seed", type=int, default=42, help="same seed, same pages")
+    scaffold.add_argument("-o", "--output", type=Path, default=Path("eval/draft.jsonl"))
+    scaffold.add_argument(
+        "--suggest",
+        action="store_true",
+        help="let the model propose a question and answer for each page (you must review them)",
+    )
+    scaffold.add_argument("--force", action="store_true", help="overwrite the output file")
+    check = eval_sub.add_parser("check", help="Validate a question file against the index.")
+    check.add_argument("path", type=Path, nargs="?", default=Path("eval/questions.jsonl"))
     chat = sub.add_parser("chat", help="Talk to your documents; follow-up questions work.")
     chat.add_argument("-k", "--top-k", type=int, default=None, help="passages per question")
     chat.add_argument(
@@ -312,6 +335,78 @@ def _chat(top_k: int | None, sources: list[str] | None, mode: str | None) -> int
             del history[:-12]  # the rewriter only looks at the latest messages anyway
 
 
+def _eval_scaffold(count: int, seed: int, output: Path, suggest: bool, force: bool) -> int:
+    service = RagService(Settings())
+    if service.index_size() == 0:
+        print("The index is empty. Run `vectornote ingest` first.", file=sys.stderr)
+        return 1
+    if output.exists() and not force:
+        print(f"error: {output} already exists (use --force to overwrite)", file=sys.stderr)
+        return 2
+    if count <= 0:
+        print("error: --count must be positive", file=sys.stderr)
+        return 2
+    picked = sample_chunks(service.indexed_chunks(), count, seed)
+    if suggest:
+        print(f"Asking {service.settings.llm_model} for {len(picked)} draft questions...")
+    drafts = draft_questions(picked, service.llm if suggest else None)
+    write_questions(output, drafts)
+    print(f"Wrote {len(drafts)} drafts to {output}.")
+    print("Now edit each line:")
+    print("  1. write the question the way a student would ask it, in your own words")
+    print("  2. set type, language and reference_answer (a sentence or two)")
+    print("  3. add every page that answers it to `expected`; add `keywords` if you like")
+    print("  4. delete the `passage` and `needs_review` fields")
+    print("Save it as eval/questions.jsonl and run `vectornote eval check`.")
+    return 0
+
+
+def _plural(count: int, word: str) -> str:
+    return f"{count} {word}" if count == 1 else f"{count} {word}s"
+
+
+def _format_counts(counts: Counter[str]) -> str:
+    return ", ".join(f"{name} {n}" for name, n in counts.most_common())
+
+
+def _eval_check(path: Path) -> int:
+    try:
+        questions = load_questions(path)
+    except (FileNotFoundError, DatasetError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    service = RagService(Settings())
+    pages: dict[str, set[int]] = {}
+    passages: dict[tuple[str, int], str] = {}
+    for chunk in service.indexed_chunks():
+        pages.setdefault(chunk.source, set()).add(chunk.page)
+        key = (chunk.source, chunk.page)
+        passages[key] = f"{passages[key]}\n{chunk.text}" if key in passages else chunk.text
+    report = check_questions(questions, pages, passages)
+
+    print(f"{path}: {_plural(report.total, 'question')}")
+    if report.total:
+        share = round(100 * report.unanswerable / report.total)
+        print(
+            f"  answerable {report.answerable}, unanswerable {report.unanswerable} ({share}%), "
+            f"follow-ups {report.follow_ups}"
+        )
+        print(f"  types: {_format_counts(report.by_type)}")
+        print(f"  languages: {_format_counts(report.by_language)}")
+        if report.by_source:
+            print(f"  sources: {_format_counts(report.by_source)}")
+    for label, items in (("Errors", report.errors), ("Warnings", report.warnings)):
+        if items:
+            print(f"\n{label} ({len(items)}):")
+            for item in items:
+                print(f"  - {item}")
+    if report.ok and not report.warnings:
+        print("\nOK")
+    elif report.ok:
+        print("\nNo errors (the warnings are advice).")
+    return 0 if report.ok else 1
+
+
 def _ingest_file(service: RagService, path: Path, force: bool) -> IngestResult:
     try:
         return service.ingest_path(path, force=force)
@@ -339,6 +434,10 @@ def _run(args: argparse.Namespace) -> int:
         return _search(
             args.query, args.top_k, args.sources, args.min_score, args.mode, args.full
         )
+    if args.command == "eval":
+        if args.eval_command == "scaffold":
+            return _eval_scaffold(args.count, args.seed, args.output, args.suggest, args.force)
+        return _eval_check(args.path)
     if args.command == "chat":
         return _chat(args.top_k, args.sources, args.mode)
     if args.command == "ask":

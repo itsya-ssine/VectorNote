@@ -150,3 +150,30 @@ it, and the stream sends a `query` event before the first token when it differs 
 user typed, so a UI can show "Searching for: ...". The rewrite costs one extra model call, only
 on follow-up turns. A failure of that call is an ordinary Ollama error (503), not silently ignored.
 Unanswered turns are not added to the history by the `chat` command.
+
+## Evaluation set
+
+`eval/questions.jsonl` holds one question per line (`evaluation/dataset.py`): the question, its
+`type` (factual, definition, comparison, procedure or unanswerable), `language`, every `expected`
+`{source, page}` that answers it, a short `reference_answer`, optional `keywords` and an optional
+`history` (a follow-up). Unknown fields are rejected, so a typo cannot silently drop a value.
+
+`vectornote eval check` validates the file against the index. **Errors** (exit code 1) are
+things that would make a metric wrong: duplicate ids, placeholder or unreviewed questions,
+expected pages that do not exist in the index, answerable questions without pages or answers,
+unanswerable questions that list pages. **Warnings** are advice: fewer than 30 questions, fewer
+than 10% unanswerable ones (needed to tune the relevance threshold), one file supplying more than
+half the questions, no follow-ups, and questions that repeat six or more words of the passage
+they target. That last one matters because a question copied from the slide is found by any
+search and inflates retrieval metrics.
+
+`vectornote eval scaffold` drafts the file: it spreads the picks over files and pages (each page
+used once before any repeats, tiny chunks skipped, seeded for repeatability), so every expected
+page is real. Questions are placeholders for you to write. With `--suggest` the local model drafts
+a question and answer per page; those drafts carry `needs_review`, and `check` fails until each
+is reviewed. Drafts contain a `passage` field to help writing, which `check` asks you to delete
+before committing, and `eval/draft*.jsonl` is git-ignored.
+
+`eval/example/` is a small public corpus (a six-page PDF with a running header and footer, and a
+French Markdown note) with 15 sample questions, so the workflow can be tried and tested without
+private course files.

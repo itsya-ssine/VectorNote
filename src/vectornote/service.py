@@ -41,7 +41,7 @@ from vectornote.generation.prompts import (
     refusal_message,
     select_context,
 )
-from vectornote.models import AskResult, ChatTurn, Citation, SearchResult
+from vectornote.models import AskResult, ChatTurn, Chunk, Citation, SearchResult
 from vectornote.retrieval import Retriever
 from vectornote.store import ChromaStore
 
@@ -256,6 +256,10 @@ class RagService:
     def indexed_sources(self) -> dict[str, int]:
         """Map each indexed file to its number of chunks."""
         return self.store.list_sources()
+
+    def indexed_chunks(self) -> list[Chunk]:
+        """Every indexed chunk (used by the evaluation tools)."""
+        return self.store.all_chunks()
 
     # ---- question answering ----------------------------------------------
 
