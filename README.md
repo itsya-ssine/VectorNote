@@ -6,19 +6,20 @@ Offline, privacy-first RAG study assistant. Ingest your semester PDFs, slides an
 
 ## Status
 
-Work in progress. The full question-answering pipeline works from the command line and the API: ingest, hybrid search, and cited answers from a local LLM through Ollama. The evaluation harness is in place and waits for your own question set; the live chat UI is next. See the [roadmap](#roadmap).
+Work in progress. The full question-answering pipeline works from the command line and the API: ingest, hybrid search, and cited answers from a local LLM through Ollama. The evaluation harness and a 46-question evaluation set are in place; the benchmark results on the real embedding model are next, followed by the live chat UI. See the [roadmap](#roadmap).
 
 | Works today | Coming next |
 |---|---|
-| PDF / Markdown / text ingestion with cleaning | Benchmark numbers from your own question set |
-| Sentence-aware chunking with page-level citations | Cited answers from a local LLM, streaming |
-| Incremental indexing (unchanged files are skipped) | Live chat UI, Docker, Vercel demo |
+| PDF / Markdown / text ingestion with cleaning | Benchmark results table (real embedding model, chunk sizes, search modes) |
+| Sentence-aware chunking with page-level citations | Live chat UI |
+| Incremental indexing (unchanged files are skipped) | Docker and the Vercel demo |
 | Vector, BM25 keyword and hybrid (RRF) search from the CLI | Reranking (optional) |
 | Cited answers from a local LLM (`ask`, `POST /ask`), with an "I couldn't find it" path | |
 | Streaming answers word by word (CLI and Server-Sent Events) | |
 | Conversation memory: follow-ups like "explain that more" are rewritten before searching (`chat`) | |
 | FastAPI endpoints for upload, listing, health and questions | |
 | Evaluation harness: question-set tools and `eval run` (hit rate, MRR, latency, citations, refusals) | |
+| Evaluation set: 46 questions with expected pages (`eval/questions.jsonl`) | |
 
 ## How it works
 
@@ -118,6 +119,24 @@ Set these as environment variables. A `.env` file is not loaded automatically ye
 
 The index remembers which embedding model built it. If you change the model, VectorNote refuses to mix vectors and asks you to delete `chroma_db/` and ingest again.
 
+## Evaluation
+
+`eval/questions.jsonl` holds 46 questions about a public Python textbook (35 answerable, 4 follow-ups that need the conversation, 7 unanswerable) with the expected pages and a short reference answer for each. `vectornote eval run` scores retrieval and answers against it. Details and the question format are in [eval/README.md](eval/README.md).
+
+```bash
+# 1. Get the textbook (not included in the repo, see eval/README.md) and save it as
+#    data/Python_Programming.pdf, then index it with the real embedding model
+uv run vectornote ingest
+uv run vectornote eval check                     # the question file matches the index
+
+# 2. Measure
+uv run vectornote eval run                       # hit rate, MRR, latency for vector, BM25, hybrid
+uv run vectornote eval run --answers --judge     # answers, citations, refusals (needs Ollama)
+uv run vectornote eval run --format markdown     # tables ready to paste here
+```
+
+No results are published yet: the numbers have to come from the real embedding model and a local LLM, and a table here must never be a guess. Once measured, the table goes in this section.
+
 ## Privacy
 
 - Documents, embeddings and the index stay on your machine. `data/` and `chroma_db/` are git-ignored.
@@ -169,9 +188,9 @@ docs/             architecture notes
   - [x] Conversation memory
 - [ ] **Phase 4:** evaluation
   - [x] Question set format, scaffolding and checker, with a public example
-  - [ ] Write `eval/questions.jsonl` (30-50 questions from your own material)
+  - [x] Write `eval/questions.jsonl` (46 questions, expected pages verified against the index)
   - [x] Metrics harness: hit rate, MRR, latency, citation correctness, refusals, optional faithfulness judge (`vectornote eval run`)
-  - [ ] Run it on your question set, compare chunk sizes and search modes, and put the results table here
+  - [ ] Run it with the real embedding model, compare chunk sizes and search modes, tune `VECTORNOTE_MIN_RELEVANCE`, and put the results table here
 - [ ] **Phase 5:** live chat UI
 - [ ] **Phase 6:** Vercel demo
 - [ ] **Phase 7:** Docker, demo video, v1.0.0

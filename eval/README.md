@@ -70,6 +70,34 @@ VECTORNOTE_DATA_DIR=eval/example/corpus VECTORNOTE_CHROMA_DIR=/tmp/vn-example \
 VECTORNOTE_CHROMA_DIR=/tmp/vn-example uv run vectornote eval check eval/example/questions.example.jsonl
 ```
 
+## The committed question set
+
+`eval/questions.jsonl` has 46 questions about the free textbook *Python Programming* by
+Hans-Petter Halvorsen (ISBN 978-82-691106-4-7; the author's page is
+https://www.halvorsen.blog/documents/programming/python/). The book is not in this repository:
+save your copy as `data/Python_Programming.pdf` (the file name is part of every `expected`
+entry) and run `vectornote ingest`.
+
+| | |
+|---|---|
+| Answerable | 35, spread over all chapters: setup, editors, variables, plotting, loops, functions, classes, modules, files, errors, pip and conda, environments, math and statistics |
+| Follow-ups | 4, each with a `history` (the question only makes sense after the conversation) |
+| Unanswerable | 7: six Python topics the book never covers (dictionaries, lambda, inheritance, unit testing, tuples, JSON) and one off-topic question |
+
+Things worth knowing when you read the numbers:
+
+- **Pages are PDF pages**, which is what VectorNote cites. The book's printed page numbers are
+  3 lower (printed page 12 is PDF page 15).
+- **Every page that answers a question is listed**, because the book repeats material (for
+  example radians and degrees on pages 67, 77 and 129-130), so a hit on any of them counts.
+- **The questions were drafted from the book's text** and every `expected` page was checked
+  against the indexed text. They are written in plain words rather than the book's wording, but
+  they are not questions you asked while studying. A set from your own study sessions is a
+  harder and more honest test; replace or extend this one when you have it.
+- **All questions come from one file and are in English**, so the one-file-share check does not
+  apply and the French path is not exercised by this set (the public example in `eval/example/`
+  does).
+
 ## Measure it
 
 Once `eval check` has no errors:

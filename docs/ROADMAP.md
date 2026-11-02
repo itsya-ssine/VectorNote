@@ -53,7 +53,7 @@ Phases 1 to 3 give you a working terminal tool, which is the core of the project
 - [x] **Task 6: Vector search** (`feat/vector-retrieval`)
   - `Retriever.search` returns `SearchResult` objects with scores, supports `top_k` and a filter by source.
 
-- [ ] **Task 7: BM25 and hybrid** (`feat/hybrid-retrieval`)
+- [x] **Task 7: BM25 and hybrid** (`feat/hybrid-retrieval`)
   - Add BM25 over the stored chunks and fuse it with vector results using Reciprocal Rank Fusion (RRF).
   - Make the mode switchable (`vector`, `bm25`, `hybrid`) so you can compare them in Phase 4.
 
@@ -63,24 +63,26 @@ Phases 1 to 3 give you a working terminal tool, which is the core of the project
 
 ## Phase 3: Generation
 
-- [ ] **Task 9: Prompt and answer with citations** (`feat/generation`)
+- [x] **Task 9: Prompt and answer with citations** (`feat/generation`)
   - `RagService.ask`: retrieve, build the prompt (`SYSTEM_PROMPT` plus numbered context blocks), call Ollama, return the answer plus source chunks.
   - The model must cite as `[file, page]` and say "I don't know" when the context lacks the answer. Handle empty retrieval without calling the LLM.
   - Wire `vectornote ask` and `POST /ask`.
 
-- [ ] **Task 10: Streaming** (`feat/streaming`)
+- [x] **Task 10: Streaming** (`feat/streaming`)
   - Stream tokens from Ollama through FastAPI (Server-Sent Events) and send the sources at the end.
 
-- [ ] **Task 11: Conversation memory** (`feat/chat-memory`)
+- [x] **Task 11: Conversation memory** (`feat/chat-memory`)
   - Rewrite follow-up questions ("explain that more") into standalone queries using recent history before retrieval.
   - **Done when (Phase 3):** answers are grounded, cited and streamed, and the assistant refuses when the notes don't cover the question.
 
 ## Phase 4: Evaluation
 
-- [ ] **Task 12: Evaluation set** (`feat/eval-dataset`)
+- [x] **Task 12: Evaluation set** (`feat/eval-dataset`)
   - Write 30-50 questions from your own course material, each with the expected source and page and a reference answer. Keep them in `eval/questions.jsonl`.
+  - Done: 46 questions on a public Python textbook, validated with `vectornote eval check`.
 
 - [ ] **Task 13: Metrics and benchmarks** (`feat/eval-harness`)
+  - Status: the harness (`vectornote eval run`) is done; what remains is running it with the real embedding model, comparing, choosing defaults and publishing the table.
   - Retrieval: hit rate@k and MRR.
   - Generation: faithfulness and citation correctness, by manual check or an LLM judge.
   - Latency: measure query time so any speed claim in the README is backed by numbers.
