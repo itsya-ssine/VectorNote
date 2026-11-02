@@ -6,11 +6,11 @@ Offline, privacy-first RAG study assistant. Ingest your semester PDFs, slides an
 
 ## Status
 
-Work in progress. The full question-answering pipeline works from the command line and the API: ingest, hybrid search, and cited answers from a local LLM through Ollama. Evaluation and the live chat UI are next. See the [roadmap](#roadmap).
+Work in progress. The full question-answering pipeline works from the command line and the API: ingest, hybrid search, and cited answers from a local LLM through Ollama. The evaluation harness is in place and waits for your own question set; the live chat UI is next. See the [roadmap](#roadmap).
 
 | Works today | Coming next |
 |---|---|
-| PDF / Markdown / text ingestion with cleaning | Evaluation harness and benchmarks |
+| PDF / Markdown / text ingestion with cleaning | Benchmark numbers from your own question set |
 | Sentence-aware chunking with page-level citations | Cited answers from a local LLM, streaming |
 | Incremental indexing (unchanged files are skipped) | Live chat UI, Docker, Vercel demo |
 | Vector, BM25 keyword and hybrid (RRF) search from the CLI | Reranking (optional) |
@@ -18,6 +18,7 @@ Work in progress. The full question-answering pipeline works from the command li
 | Streaming answers word by word (CLI and Server-Sent Events) | |
 | Conversation memory: follow-ups like "explain that more" are rewritten before searching (`chat`) | |
 | FastAPI endpoints for upload, listing, health and questions | |
+| Evaluation harness: question-set tools and `eval run` (hit rate, MRR, latency, citations, refusals) | |
 
 ## How it works
 
@@ -83,6 +84,7 @@ npm run dev                                 # UI on http://localhost:3000
 | `vectornote chat [-k N] [--mode ...] [--source FILE]` | Interactive conversation with your documents. Follow-ups such as "explain that more" are rewritten into standalone questions first, and the rewrite is shown as `(searching for: ...)`. `/reset` forgets the conversation, `/exit` quits. Needs Ollama. |
 | `vectornote eval scaffold [-n N] [--suggest] [-o FILE]` | Draft an evaluation question file whose `expected` pages are real pages of your documents. You write the questions; `--suggest` lets the local model propose some for you to review. See [eval/README.md](eval/README.md). |
 | `vectornote eval check [FILE]` | Validate `eval/questions.jsonl` against the index: missing pages, placeholders, unanswerable questions, questions copied from the slides, balance across files. |
+| `vectornote eval run [FILE] [-k N] [--mode ...] [--rewrite] [--answers] [--judge] [--format text\|markdown] [-o FILE]` | Measure the question set: hit rate@k, MRR and search latency for vector, BM25 and hybrid, a table for tuning the relevance threshold, and with `--answers` (needs Ollama) the answer rate, correct refusals, citation correctness and keyword coverage (`--judge` adds a model's faithfulness check). Refuses to run while `eval check` reports errors. See [eval/README.md](eval/README.md). |
 | `vectornote inspect <file> [--chunks]` | Show how a file is loaded, cleaned and chunked. Use it to debug a bad PDF. |
 | `vectornote serve [--host] [--port] [--reload]` | Run the HTTP API. |
 | `vectornote ask "<question>" [-k N] [--mode ...] [--source FILE] [--no-stream]` | Answer from your documents with numbered citations, printed word by word as the model writes it, followed by the list of sources (`[1] file, p. N`). `--no-stream` waits for the whole answer. Needs Ollama. |
@@ -107,7 +109,9 @@ Set these as environment variables. A `.env` file is not loaded automatically ye
 | `VECTORNOTE_CHROMA_DIR` | `chroma_db` | Where the index is stored |
 | `VECTORNOTE_EMBEDDING_MODEL` | `sentence-transformers/all-MiniLM-L6-v2` | Embedding model. `hashing` selects a tiny dependency-free embedder for tests and offline smoke runs (word matching only, no semantics). |
 | `VECTORNOTE_RETRIEVAL_MODE` | `hybrid` | Default search mode: `vector`, `bm25` or `hybrid` |
-| `VECTORNOTE_MIN_RELEVANCE` | `0.25` | Minimum cosine similarity for a passage to be used in an answer (tune it in Phase 4) |
+| `VECTORNOTE_MIN_RELEVANCE` | `0.25` | Minimum cosine similarity for a passage to be used in an answer (tune it with the threshold table of `eval run`) |
+| `VECTORNOTE_CHUNK_SIZE` | `800` | Target chunk size in characters. Re-index into a fresh `VECTORNOTE_CHROMA_DIR` after changing it |
+| `VECTORNOTE_CHUNK_OVERLAP` | `100` | Characters shared by neighbouring chunks |
 | `VECTORNOTE_LLM_MODEL` | `llama3.2:3b` | Ollama model used for answers |
 | `VECTORNOTE_OLLAMA_URL` | `http://localhost:11434` | Ollama server |
 | `VECTORNOTE_CORS_ORIGINS` | `http://localhost:3000` | Allowed browser origins, comma separated |
@@ -166,7 +170,8 @@ docs/             architecture notes
 - [ ] **Phase 4:** evaluation
   - [x] Question set format, scaffolding and checker, with a public example
   - [ ] Write `eval/questions.jsonl` (30-50 questions from your own material)
-  - [ ] Metrics: hit rate, MRR, faithfulness, citation correctness, latency
+  - [x] Metrics harness: hit rate, MRR, latency, citation correctness, refusals, optional faithfulness judge (`vectornote eval run`)
+  - [ ] Run it on your question set, compare chunk sizes and search modes, and put the results table here
 - [ ] **Phase 5:** live chat UI
 - [ ] **Phase 6:** Vercel demo
 - [ ] **Phase 7:** Docker, demo video, v1.0.0

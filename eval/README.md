@@ -69,3 +69,53 @@ VECTORNOTE_DATA_DIR=eval/example/corpus VECTORNOTE_CHROMA_DIR=/tmp/vn-example \
   uv run vectornote ingest
 VECTORNOTE_CHROMA_DIR=/tmp/vn-example uv run vectornote eval check eval/example/questions.example.jsonl
 ```
+
+## Measure it
+
+Once `eval check` has no errors:
+
+```bash
+uv run vectornote eval run                    # retrieval: vector, bm25 and hybrid, offline
+uv run vectornote eval run --answers --judge  # also answers, citations, refusals (needs Ollama)
+uv run vectornote eval run --format markdown  # README-ready tables on stdout
+uv run vectornote eval run -o eval/results.json   # everything, with every answer (git-ignored)
+```
+
+| Number | Meaning |
+|---|---|
+| hit@k | Share of answerable questions with an expected page among the top k results |
+| MRR | Mean of `1 / rank` of the first expected page (1.0 means always first) |
+| p50 / p95 ms | Typical and slow search time, measured after a warm-up search |
+| answered / refused correctly | Does it answer what the notes cover, and refuse what they do not |
+| citation on an expected page | The answer cites a passage from a page you listed in `expected` |
+| keyword coverage | Share of your `keywords` that appear in the answer |
+| faithfulness | A model's yes/no on whether the answer only says what its passages say (rough) |
+
+Follow-up questions need the model to be rewritten, so retrieval skips them unless you add
+`--rewrite`; `--answers` always includes them.
+
+### Tuning the relevance threshold
+
+The "Relevance threshold" table shows, for each minimum cosine similarity, how many answerable
+questions would still find a passage ("kept") and how many unanswerable ones would be refused.
+Pick the value that refuses most unanswerable questions while keeping nearly all answerable
+ones, then set `VECTORNOTE_MIN_RELEVANCE`. This needs the 5 or more unanswerable questions
+that `check` asks for; with none, the "refused" column reads `n/a`.
+
+### Comparing chunk sizes
+
+Indexing skips files it has already seen, so use one index per size:
+
+```bash
+for size in 400 800 1200; do
+  export VECTORNOTE_CHROMA_DIR=/tmp/vn-$size VECTORNOTE_CHUNK_SIZE=$size \
+         VECTORNOTE_CHUNK_OVERLAP=$((size / 8))
+  uv run vectornote ingest
+  echo "chunk size $size"
+  uv run vectornote eval run --format markdown
+done
+```
+
+Run it on your real files and the real embedding model. On the small public example corpus every
+mode finds every page, so its numbers say nothing about quality (and `VECTORNOTE_EMBEDDING_MODEL=hashing`
+has no semantics at all).

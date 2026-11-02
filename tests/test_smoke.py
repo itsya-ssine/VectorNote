@@ -20,3 +20,10 @@ def test_default_settings() -> None:
 def test_cli_without_command_prints_help(capsys: pytest.CaptureFixture[str]) -> None:
     assert main([]) == 0
     assert "vectornote" in capsys.readouterr().out
+
+
+def test_chunk_size_can_be_set_from_the_environment(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("VECTORNOTE_CHUNK_SIZE", "400")
+    monkeypatch.setenv("VECTORNOTE_CHUNK_OVERLAP", "50")
+    s = Settings()
+    assert (s.chunk_size, s.chunk_overlap) == (400, 50)
