@@ -327,6 +327,10 @@ class RagService:
             yield TokenEvent(tail)
         yield DoneEvent(self._finish_answer("".join(parts), context, text))
 
+    def standalone_question(self, question: str, history: Sequence[ChatTurn] | None = None) -> str:
+        """The question as it will be searched for: a follow-up rewritten using `history`."""
+        return self._standalone_question(question, history)
+
     def _standalone_question(self, question: str, history: Sequence[ChatTurn] | None) -> str:
         """The question to search for: the follow-up rewritten using the conversation."""
         text = question.strip()

@@ -17,6 +17,15 @@ from vectornote.evaluation.dataset import (
     load_questions,
     write_questions,
 )
+from vectornote.evaluation.metrics import AnswerRecord, AnswerSummary
+from vectornote.evaluation.report import (
+    RunInfo,
+    build_payload,
+    format_markdown,
+    format_text,
+    write_json,
+)
+from vectornote.evaluation.runner import resolve_queries, run_answers, run_retrieval
 from vectornote.evaluation.scaffold import draft_questions, sample_chunks
 from vectornote.generation import OllamaError
 from vectornote.ingestion.chunking import chunk_document
@@ -45,7 +54,7 @@ def build_parser() -> argparse.ArgumentParser:
     ingest.add_argument(
         "--prune", action="store_true", help="drop indexed files that left the data directory"
     )
-    evaluate = sub.add_parser("eval", help="Build and check the evaluation question set.")
+    evaluate = sub.add_parser("eval", help="Build, check and run the evaluation question set.")
     eval_sub = evaluate.add_subparsers(dest="eval_command", required=True)
     scaffold = eval_sub.add_parser(
         "scaffold", help="Draft a question file that points at real pages of your documents."
@@ -61,6 +70,43 @@ def build_parser() -> argparse.ArgumentParser:
     scaffold.add_argument("--force", action="store_true", help="overwrite the output file")
     check = eval_sub.add_parser("check", help="Validate a question file against the index.")
     check.add_argument("path", type=Path, nargs="?", default=Path("eval/questions.jsonl"))
+    run = eval_sub.add_parser(
+        "run", help="Measure retrieval (hit rate, MRR, latency) and answer quality."
+    )
+    run.add_argument("path", type=Path, nargs="?", default=Path("eval/questions.jsonl"))
+    run.add_argument("-k", "--top-k", type=int, default=5, help="passages per question")
+    run.add_argument(
+        "--mode",
+        action="append",
+        choices=MODES,
+        dest="modes",
+        help="search mode to measure (repeatable; default: all three)",
+    )
+    run.add_argument(
+        "--rewrite",
+        action="store_true",
+        help="include follow-up questions in the retrieval benchmark (needs Ollama)",
+    )
+    run.add_argument(
+        "--answers", action="store_true", help="also measure the answers (needs Ollama)"
+    )
+    run.add_argument(
+        "--answer-mode",
+        choices=MODES,
+        default=None,
+        help="search mode used for the answers (default: VECTORNOTE_RETRIEVAL_MODE)",
+    )
+    run.add_argument(
+        "--judge",
+        action="store_true",
+        help="let the model judge whether each answer is faithful to its passages (--answers)",
+    )
+    run.add_argument(
+        "--format", choices=("text", "markdown"), default="text", help="how to print the results"
+    )
+    run.add_argument(
+        "-o", "--output", type=Path, default=None, help="save all results and answers as JSON"
+    )
     chat = sub.add_parser("chat", help="Talk to your documents; follow-up questions work.")
     chat.add_argument("-k", "--top-k", type=int, default=None, help="passages per question")
     chat.add_argument(
@@ -369,6 +415,19 @@ def _format_counts(counts: Counter[str]) -> str:
     return ", ".join(f"{name} {n}" for name, n in counts.most_common())
 
 
+def _index_content(
+    service: RagService,
+) -> tuple[dict[str, set[int]], dict[tuple[str, int], str]]:
+    """The pages that have text in each indexed file, and the text of each page."""
+    pages: dict[str, set[int]] = {}
+    passages: dict[tuple[str, int], str] = {}
+    for chunk in service.indexed_chunks():
+        pages.setdefault(chunk.source, set()).add(chunk.page)
+        key = (chunk.source, chunk.page)
+        passages[key] = f"{passages[key]}\n{chunk.text}" if key in passages else chunk.text
+    return pages, passages
+
+
 def _eval_check(path: Path) -> int:
     try:
         questions = load_questions(path)
@@ -376,12 +435,7 @@ def _eval_check(path: Path) -> int:
         print(f"error: {exc}", file=sys.stderr)
         return 2
     service = RagService(Settings())
-    pages: dict[str, set[int]] = {}
-    passages: dict[tuple[str, int], str] = {}
-    for chunk in service.indexed_chunks():
-        pages.setdefault(chunk.source, set()).add(chunk.page)
-        key = (chunk.source, chunk.page)
-        passages[key] = f"{passages[key]}\n{chunk.text}" if key in passages else chunk.text
+    pages, passages = _index_content(service)
     report = check_questions(questions, pages, passages)
 
     print(f"{path}: {_plural(report.total, 'question')}")
@@ -405,6 +459,74 @@ def _eval_check(path: Path) -> int:
     elif report.ok:
         print("\nNo errors (the warnings are advice).")
     return 0 if report.ok else 1
+
+
+def _eval_run(args: argparse.Namespace) -> int:
+    if args.judge and not args.answers:
+        print("error: --judge needs --answers", file=sys.stderr)
+        return 2
+    if args.top_k <= 0:
+        print("error: --top-k must be positive", file=sys.stderr)
+        return 2
+    try:
+        questions = load_questions(args.path)
+    except (FileNotFoundError, DatasetError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    if not questions:
+        print(f"error: {args.path} has no questions", file=sys.stderr)
+        return 2
+    service = RagService(Settings())
+    if service.index_size() == 0:
+        print("The index is empty. Run `vectornote ingest` first.", file=sys.stderr)
+        return 1
+    pages, _ = _index_content(service)
+    problems = check_questions(questions, pages).errors
+    if problems:
+        print(f"{args.path} has errors, so the numbers would be meaningless:", file=sys.stderr)
+        for problem in problems[:5]:
+            print(f"  - {problem}", file=sys.stderr)
+        if len(problems) > 5:
+            print(f"  ... and {len(problems) - 5} more", file=sys.stderr)
+        print("Run `vectornote eval check` for the full list.", file=sys.stderr)
+        return 1
+
+    queries = resolve_queries(service, questions, args.rewrite)
+    retrievals = []
+    for mode in args.modes or list(MODES):
+        print(f"Measuring retrieval ({mode})...", file=sys.stderr)
+        retrievals.append(run_retrieval(service, questions, queries, mode, args.top_k))
+
+    answers: AnswerSummary | None = None
+    records: list[AnswerRecord] = []
+    if args.answers:
+        total = len(questions)
+        print(f"Asking {total} questions with {service.settings.llm_model}...", file=sys.stderr)
+
+        def progress(done: int, count: int) -> None:
+            print(f"  {done}/{count}", end="\r" if done < count else "\n", file=sys.stderr)
+
+        answers, records = run_answers(
+            service, questions, args.answer_mode, args.top_k, args.judge, progress=progress
+        )
+
+    settings = service.settings
+    info = RunInfo(
+        questions_file=str(args.path),
+        questions=len(questions),
+        embedding_model=service.embedder.name,
+        llm_model=settings.llm_model,
+        chunk_size=settings.chunk_size,
+        chunk_overlap=settings.chunk_overlap,
+        min_relevance=settings.min_relevance,
+        top_k=args.top_k,
+    )
+    render = format_markdown if args.format == "markdown" else format_text
+    print(render(info, retrievals, answers))
+    if args.output is not None:
+        write_json(args.output, build_payload(info, retrievals, answers, records))
+        print(f"Saved the full results to {args.output}", file=sys.stderr)
+    return 0
 
 
 def _ingest_file(service: RagService, path: Path, force: bool) -> IngestResult:
@@ -437,6 +559,8 @@ def _run(args: argparse.Namespace) -> int:
     if args.command == "eval":
         if args.eval_command == "scaffold":
             return _eval_scaffold(args.count, args.seed, args.output, args.suggest, args.force)
+        if args.eval_command == "run":
+            return _eval_run(args)
         return _eval_check(args.path)
     if args.command == "chat":
         return _chat(args.top_k, args.sources, args.mode)

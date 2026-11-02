@@ -24,3 +24,5 @@ web/.env.local
 
 # Evaluation drafts (contain course text)
 eval/draft*.jsonl
+# Saved benchmark runs contain model answers about your course material
+eval/results*.json

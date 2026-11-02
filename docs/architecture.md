@@ -177,3 +177,49 @@ before committing, and `eval/draft*.jsonl` is git-ignored.
 `eval/example/` is a small public corpus (a six-page PDF with a running header and footer, and a
 French Markdown note) with 15 sample questions, so the workflow can be tried and tested without
 private course files.
+
+## Benchmark
+
+`vectornote eval run` (`evaluation/runner.py`, `metrics.py`, `report.py`) scores the question set
+against the index. It refuses to run while `eval check` reports errors, because the numbers would
+describe a broken file.
+
+**Retrieval** is measured for `vector`, `bm25` and `hybrid` side by side, offline and without the
+language model:
+
+- *Hit rate @k*: the share of answerable questions with at least one result on an expected page
+  in the top k (reported at 1, 3, 5, ... up to `-k`). Ranks count chunks, so two chunks of one
+  page take two ranks.
+- *MRR*: the mean of `1 / rank` of the first expected page (0 when it is missing).
+- *Latency*: p50, p95 and mean time of one `search` call, after a warm-up search so that loading
+  the embedding model and building the BM25 index are not counted.
+- *Relevance threshold table* (modes with cosine scores only): searches run without the gate,
+  and for each cosine threshold the table shows how many answerable questions would still keep a
+  passage and how many unanswerable ones would be refused. This is the data for choosing
+  `VECTORNOTE_MIN_RELEVANCE`; the current value is marked.
+
+Follow-up questions only make sense once rewritten, so retrieval skips them unless `--rewrite` is
+given (one model call each, done once and shared by all modes). The summary says how many were
+skipped.
+
+**Answers** (`--answers`, needs Ollama) call `ask` for every question, follow-ups included:
+
+- *Answered* and *refused correctly*: the false-refusal rate on answerable questions and the
+  correct-refusal rate on unanswerable ones. The ids of both kinds of mistake are listed.
+- *Citation on an expected page*: the answer has `[n]` markers and at least one points at an
+  expected page. An answer without markers does not count, even though `ask` then falls back to
+  listing all passages.
+- *Keyword coverage*: the share of a question's `keywords` found in the answer.
+- *Faithfulness* (`--judge`): the model is asked whether every claim of the answer is stated in
+  the passages it was given. A small local model is a weak judge, so this is a signal to
+  investigate, not a number to quote alone; `--output` saves every answer with its cited and
+  retrieved pages so doubtful ones can be read by hand.
+- *Latency*: the time `ask` takes (including query rewriting), without the judge.
+
+`--format markdown` prints README-ready tables and `-o results.json` saves everything, along with
+the settings used (embedding model, chunk size and overlap, threshold, k). Progress messages go
+to stderr, so the tables can be redirected into a file. Saved runs are git-ignored.
+
+Chunk size is read from `VECTORNOTE_CHUNK_SIZE` and `VECTORNOTE_CHUNK_OVERLAP`, so sizes can be
+compared by indexing into one `VECTORNOTE_CHROMA_DIR` per size (see `eval/README.md`).
+Reranking is not implemented yet, so there is nothing to compare it against.
