@@ -21,3 +21,6 @@ web/dist/
 web/.vercel/
 web/*.tsbuildinfo
 web/.env.local
+
+# Evaluation drafts (contain course text)
+eval/draft*.jsonl

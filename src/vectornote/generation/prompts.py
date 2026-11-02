@@ -41,9 +41,14 @@ _MESSAGES: dict[tuple[str, Refusal], str] = {
 }
 
 
+def guess_language(text: str, min_markers: int = 2) -> str:
+    """'fr' if the text contains enough common French words, otherwise 'en'."""
+    words = {w.lower() for w in _WORD.findall(text)}
+    return "fr" if len(words & _FRENCH_MARKERS) >= min_markers else "en"
+
+
 def _language(question: str) -> str:
-    words = {w.lower() for w in _WORD.findall(question)}
-    return "fr" if len(words & _FRENCH_MARKERS) >= 2 else "en"
+    return guess_language(question)
 
 
 def refusal_message(question: str, reason: Refusal = "not_found") -> str:

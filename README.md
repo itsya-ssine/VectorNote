@@ -81,6 +81,8 @@ npm run dev                                 # UI on http://localhost:3000
 | `vectornote ingest [paths...] [--force] [--prune]` | Index files or folders (default: `data/`). `--force` re-indexes unchanged files. `--prune` removes files that left `data/` from the index. |
 | `vectornote search "<question>" [-k N] [--mode vector\|bm25\|hybrid] [--source FILE] [--min-score X] [--full]` | Show the most relevant passages with score, file and page. `--source` can be repeated. `--min-score` is a minimum cosine similarity (vector and hybrid modes). In hybrid mode each result also shows its cosine and BM25 scores. |
 | `vectornote chat [-k N] [--mode ...] [--source FILE]` | Interactive conversation with your documents. Follow-ups such as "explain that more" are rewritten into standalone questions first, and the rewrite is shown as `(searching for: ...)`. `/reset` forgets the conversation, `/exit` quits. Needs Ollama. |
+| `vectornote eval scaffold [-n N] [--suggest] [-o FILE]` | Draft an evaluation question file whose `expected` pages are real pages of your documents. You write the questions; `--suggest` lets the local model propose some for you to review. See [eval/README.md](eval/README.md). |
+| `vectornote eval check [FILE]` | Validate `eval/questions.jsonl` against the index: missing pages, placeholders, unanswerable questions, questions copied from the slides, balance across files. |
 | `vectornote inspect <file> [--chunks]` | Show how a file is loaded, cleaned and chunked. Use it to debug a bad PDF. |
 | `vectornote serve [--host] [--port] [--reload]` | Run the HTTP API. |
 | `vectornote ask "<question>" [-k N] [--mode ...] [--source FILE] [--no-stream]` | Answer from your documents with numbered citations, printed word by word as the model writes it, followed by the list of sources (`[1] file, p. N`). `--no-stream` waits for the whole answer. Needs Ollama. |
@@ -140,9 +142,11 @@ src/vectornote/
   embeddings/     sentence-transformers encoder, hashing embedder, factory
   store/          ChromaDB persistence
   retrieval/      vector search, BM25, rank fusion (hybrid)
-  generation/     Ollama client, prompts, citation parsing
+  generation/     Ollama client, prompts, citation parsing, query rewriting
+  evaluation/     evaluation question set: format, checks, scaffolding
 web/              React + TypeScript UI (live mode and static demo mode)
-scripts/          smoke tests for Ollama and the vector store
+scripts/          smoke tests for Ollama and the vector store, example corpus generator
+eval/             evaluation question set and a small public example
 tests/            pytest suite
 docs/             architecture notes
 ```
@@ -159,7 +163,10 @@ docs/             architecture notes
   - [x] Cited answers, refusal path, `ask` command and `/ask` endpoint
   - [x] Streaming
   - [x] Conversation memory
-- [ ] **Phase 4:** evaluation (hit rate, MRR, faithfulness, latency)
+- [ ] **Phase 4:** evaluation
+  - [x] Question set format, scaffolding and checker, with a public example
+  - [ ] Write `eval/questions.jsonl` (30-50 questions from your own material)
+  - [ ] Metrics: hit rate, MRR, faithfulness, citation correctness, latency
 - [ ] **Phase 5:** live chat UI
 - [ ] **Phase 6:** Vercel demo
 - [ ] **Phase 7:** Docker, demo video, v1.0.0
