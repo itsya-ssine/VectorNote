@@ -6,12 +6,12 @@ Offline, privacy-first RAG study assistant. Ingest your semester PDFs, slides an
 
 ## Status
 
-Work in progress. The full question-answering pipeline works from the command line and the API: ingest, hybrid search, and cited answers from a local LLM through Ollama. The evaluation harness, a 46-question evaluation set and the benchmarks (retrieval, chunk sizes, answers) are done (see [Evaluation](#evaluation)); the live chat UI is next. See the [roadmap](#roadmap).
+Work in progress. The full question-answering pipeline works from the command line and the API: ingest, hybrid search, and cited answers from a local LLM through Ollama. The evaluation harness, a 46-question evaluation set and the benchmarks (retrieval, chunk sizes, answers) are done (see [Evaluation](#evaluation)); the web UI now works against the API (streaming chat with follow-ups, uploads with progress, delete, per-document filter), and clickable citations and the demo deployment are next. See the [roadmap](#roadmap).
 
 | Works today | Coming next |
 |---|---|
-| PDF / Markdown / text ingestion with cleaning | Live chat UI |
-| Sentence-aware chunking with page-level citations | Live chat UI |
+| PDF / Markdown / text ingestion with cleaning | Citation experience in the UI (clickable citations, copy button) |
+| Sentence-aware chunking with page-level citations | UI polish (mobile layout, keyboard shortcuts, loading states) |
 | Incremental indexing (unchanged files are skipped) | Docker and the Vercel demo |
 | Vector, BM25 keyword and hybrid (RRF) search from the CLI | Reranking (optional) |
 | Cited answers from a local LLM (`ask`, `POST /ask`), with an "I couldn't find it" path | |
@@ -21,6 +21,7 @@ Work in progress. The full question-answering pipeline works from the command li
 | Evaluation harness: question-set tools and `eval run` (hit rate, MRR, latency, citations, refusals) | |
 | Evaluation set: 46 questions with expected pages (`eval/questions.jsonl`) | |
 | Benchmarks: retrieval (vector, BM25, hybrid), chunk sizes, tuned relevance threshold, answer quality | |
+| Web UI: streaming chat with follow-ups and a stop button, upload with progress, document list with delete, per-document search filter | |
 
 ## How it works
 
@@ -97,6 +98,7 @@ npm run dev                                 # UI on http://localhost:3000
 |---|---|---|
 | `GET` | `/health` | done |
 | `GET` | `/documents` | done: files in `data/` |
+| `DELETE` | `/documents/{name}` | done: remove the file from `data/` and its chunks from the index (404 if unknown) |
 | `POST` | `/ingest` | done: upload a file and index it (415 for unsupported types, 422 for unreadable files) |
 | `POST` | `/ask/stream` | done: same request as `/ask`, answered as Server-Sent Events: a `query` event (`{"question"}`) when a follow-up was rewritten, many `token` events (`{"text"}`), then `done` (same JSON as `/ask`), or `error` (`{"detail"}`) if the model fails midway. Closing the connection stops the model. |
 | `POST` | `/ask` | done: `{question, top_k?, sources?, mode?, history?}` where `history` is the earlier messages `[{role: "user"|"assistant", content}]` (the server keeps no conversation state; the client sends it each time) returns `{answer, answered, standalone_question, cited, sources[]}`; 503 if Ollama is down or the model is missing |
@@ -257,6 +259,9 @@ docs/             architecture notes
   - [x] Retrieval benchmark with the real embedding model: search modes compared, `VECTORNOTE_MIN_RELEVANCE` tuned, results table published
   - [x] Answer benchmark (`--answers --judge`) and chunk-size comparison (`make bench`)
 - [ ] **Phase 5:** live chat UI
+  - [x] Connect the React UI: streaming answers, follow-ups, upload progress and errors, delete, source filter
+  - [ ] Citation experience (clickable citations, copy button, empty and error states)
+  - [ ] Polish (mobile, keyboard shortcuts, loading skeletons)
 - [ ] **Phase 6:** Vercel demo
 - [ ] **Phase 7:** Docker, demo video, v1.0.0
 

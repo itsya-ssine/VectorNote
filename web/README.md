@@ -9,6 +9,19 @@ Two modes, one codebase:
 | **Live** | `VITE_DEMO_MODE=false` | Talks to the FastAPI backend at `VITE_API_URL` |
 | **Static demo** | `VITE_DEMO_MODE=true` (set in `.env.production`) | Canned answers with citations and a "Static Demo Mode" banner. This is what Vercel deploys. |
 
+## What the live UI does
+
+- **Chat:** answers stream in word by word (`POST /ask/stream`), with a Stop button. Follow-up
+  questions work because the last 10 messages are sent with each question; when the server
+  rewrites a follow-up, the question it searched for is shown. "New conversation" clears the chat.
+- **Sources:** every answer lists the passages it cites, numbered like the `[1]` markers in the text.
+- **Uploads:** several files at a time, each with a progress bar, then "Indexing" while the server
+  embeds it. A file that fails (wrong type, unreadable PDF) shows its own error and does not stop the others.
+- **Documents:** the list comes from `GET /documents`; the × button removes a file and its indexed passages.
+- **Search filter:** untick a document to leave it out of the search. Nothing is filtered until you untick one.
+
+In static demo mode the same screens run on canned data, so uploads and deletes only change the list in the page.
+
 ## Local development
 
 ```bash
