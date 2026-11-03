@@ -1,4 +1,4 @@
-.PHONY: install api web check
+.PHONY: install api web check bench
 
 install:
 	uv sync
@@ -15,3 +15,6 @@ check:
 	uv run mypy
 	uv run pytest
 	cd web && npm run build
+
+bench:
+	scripts/bench_chunks.sh
