@@ -76,8 +76,13 @@ def llm() -> ScriptedLLM:
 
 @pytest.fixture
 def service(tmp_path: Path, llm: ScriptedLLM) -> RagService:
+    # The hashing embedder scores far lower than a real model, so the gate is pinned here
+    # instead of following the production default.
     settings = Settings(
-        data_dir=tmp_path / "data", chroma_dir=tmp_path / "db", embedding_model="hashing"
+        data_dir=tmp_path / "data",
+        chroma_dir=tmp_path / "db",
+        embedding_model="hashing",
+        min_relevance=0.25,
     )
     settings.data_dir.mkdir()
     (settings.data_dir / "os.txt").write_text(MUTEX)
