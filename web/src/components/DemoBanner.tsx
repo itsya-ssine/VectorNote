@@ -1,8 +1,13 @@
+import { InfoIcon } from "./icons";
+
 export function DemoBanner() {
   return (
     <div className="banner" role="status">
-      <strong>Static Demo Mode.</strong> RAG backend not connected. Clone the repository and
-      run it locally with Ollama to experience full offline inference.
+      <InfoIcon size={16} />
+      <span>
+        <strong>Static demo.</strong> The RAG backend is not connected. Clone the repository and run
+        it locally with Ollama for full offline inference.
+      </span>
     </div>
   );
 }

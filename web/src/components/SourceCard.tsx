@@ -4,8 +4,11 @@ export function SourceCard({ source }: { source: Source }) {
   return (
     <li className="source">
       <div className="source-head">
-        <span className="source-file">
-          <span className="source-number">[{source.number}]</span> {source.source}
+        <span className="source-number" aria-label={`Source ${source.number}`}>
+          {source.number}
+        </span>
+        <span className="source-file" title={source.source}>
+          {source.source}
         </span>
         <span className="source-page">p. {source.page}</span>
       </div>

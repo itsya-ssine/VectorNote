@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import { deleteDocument, listDocuments, uploadDocument } from "../lib/api";
+import { useCallback, useEffect, useRef, useState, type DragEvent } from "react";
+import { DEMO_MODE, deleteDocument, listDocuments, uploadDocument } from "../lib/api";
 import type { DocumentInfo, UploadItem } from "../lib/types";
+import { CloseIcon, LockIcon, LogoMark, TrashIcon, UploadIcon } from "./icons";
 
 function formatSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -14,7 +15,15 @@ function resultMessage(status: string, chunks: number): string {
   return `${verb}: ${chunks} passage${chunks === 1 ? "" : "s"}.`;
 }
 
+function extensionOf(name: string): string {
+  const dot = name.lastIndexOf(".");
+  return dot === -1 ? "FILE" : name.slice(dot + 1, dot + 5).toUpperCase();
+}
+
 interface Props {
+  /** Whether the sidebar is shown as a drawer (small screens only). */
+  open: boolean;
+  onClose: () => void;
   /** Names of the files that are left out of searches. */
   excluded: string[];
   onExcludedChange: (names: string[]) => void;
@@ -22,13 +31,14 @@ interface Props {
   onDocumentsChange: (names: string[]) => void;
 }
 
-export function Sidebar({ excluded, onExcludedChange, onDocumentsChange }: Props) {
+export function Sidebar({ open, onClose, excluded, onExcludedChange, onDocumentsChange }: Props) {
   const [docs, setDocs] = useState<DocumentInfo[]>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [uploads, setUploads] = useState<UploadItem[]>([]);
   const [deleting, setDeleting] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
+  const [dragging, setDragging] = useState(false);
   const input = useRef<HTMLInputElement>(null);
 
   const refresh = useCallback(async () => {
@@ -102,6 +112,12 @@ export function Sidebar({ excluded, onExcludedChange, onDocumentsChange }: Props
     }
   }
 
+  function onDrop(e: DragEvent) {
+    e.preventDefault();
+    setDragging(false);
+    if (!uploading) void onFiles(e.dataTransfer.files);
+  }
+
   function toggle(name: string) {
     onExcludedChange(
       excluded.includes(name) ? excluded.filter((n) => n !== name) : [...excluded, name],
@@ -109,76 +125,121 @@ export function Sidebar({ excluded, onExcludedChange, onDocumentsChange }: Props
   }
 
   return (
-    <aside className="sidebar">
-      <h1 className="brand">VectorNote</h1>
-      <p className="tagline">Offline study assistant</p>
-
-      <button className="upload" disabled={uploading} onClick={() => input.current?.click()}>
-        {uploading ? "Uploading..." : "Upload documents"}
-      </button>
-      <input
-        ref={input}
-        type="file"
-        multiple
-        accept=".pdf,.md,.txt"
-        hidden
-        onChange={(e) => void onFiles(e.target.files)}
-      />
-
-      {uploads.length > 0 && (
-        <ul className="uploads" aria-live="polite">
-          {uploads.map((u) => (
-            <li key={u.id} className={`upload-item ${u.phase}`}>
-              <span className="doc-name">{u.name}</span>
-              {u.phase === "uploading" && (
-                <progress value={u.percent} max={100} aria-label={`Uploading ${u.name}`} />
-              )}
-              {u.phase === "indexing" && <span className="status">Indexing, this can take a while...</span>}
-              {(u.phase === "done" || u.phase === "error") && (
-                <span className={u.phase === "error" ? "status failed" : "status"}>{u.message}</span>
-              )}
-            </li>
-          ))}
-        </ul>
-      )}
-
-      {notice && <p className="status failed">{notice}</p>}
-
-      <h2 className="section-title">Documents</h2>
-      {loadError && (
-        <p className="status failed">
-          {loadError}{" "}
-          <button className="link" onClick={() => void refresh()}>
-            Retry
+    <aside className={`sidebar${open ? " open" : ""}`} aria-label="Documents">
+      <div className="sidebar-head">
+        <div className="brand-row">
+          <LogoMark size={34} />
+          <div className="brand-text">
+            <h1 className="brand">VectorNote</h1>
+            <p className="tagline">Offline study assistant</p>
+          </div>
+          <button className="icon-btn sidebar-close" aria-label="Close sidebar" onClick={onClose}>
+            <CloseIcon />
           </button>
-        </p>
-      )}
-      <ul className="docs">
-        {docs.length === 0 && !loadError && <li className="empty">No documents yet.</li>}
-        {docs.map((d) => (
-          <li key={d.name} className="doc">
-            <label className="doc-pick" title="Include in searches">
-              <input
-                type="checkbox"
-                checked={!excluded.includes(d.name)}
-                onChange={() => toggle(d.name)}
-              />
-              <span className="doc-name">{d.name}</span>
-            </label>
-            <span className="doc-size">{formatSize(d.size_bytes)}</span>
-            <button
-              className="doc-delete"
-              aria-label={`Remove ${d.name}`}
-              disabled={deleting === d.name}
-              onClick={() => void onDelete(d.name)}
-            >
-              ×
+        </div>
+
+        <button
+          className={`dropzone${dragging ? " dragging" : ""}`}
+          disabled={uploading}
+          onClick={() => input.current?.click()}
+          onDragOver={(e) => {
+            e.preventDefault();
+            if (!uploading) setDragging(true);
+          }}
+          onDragLeave={() => setDragging(false)}
+          onDrop={onDrop}
+        >
+          <span className="dropzone-icon">
+            <UploadIcon size={18} />
+          </span>
+          <span className="dropzone-title">{uploading ? "Uploading..." : "Upload documents"}</span>
+          <span className="dropzone-sub">PDF, Markdown or text. Drop files here.</span>
+        </button>
+        <input
+          ref={input}
+          type="file"
+          multiple
+          accept=".pdf,.md,.txt"
+          hidden
+          onChange={(e) => void onFiles(e.target.files)}
+        />
+      </div>
+
+      <div className="sidebar-body">
+        {uploads.length > 0 && (
+          <ul className="uploads" aria-live="polite">
+            {uploads.map((u) => (
+              <li key={u.id} className={`upload-item ${u.phase}`}>
+                <span className="doc-name">{u.name}</span>
+                {u.phase === "uploading" && (
+                  <progress value={u.percent} max={100} aria-label={`Uploading ${u.name}`} />
+                )}
+                {u.phase === "indexing" && (
+                  <span className="status">Indexing, this can take a while...</span>
+                )}
+                {(u.phase === "done" || u.phase === "error") && (
+                  <span className={u.phase === "error" ? "status failed" : "status"}>
+                    {u.message}
+                  </span>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
+
+        {notice && <p className="status failed">{notice}</p>}
+
+        <h2 className="section-title">
+          Documents
+          {docs.length > 0 && <span className="count">{docs.length}</span>}
+        </h2>
+        {loadError && (
+          <p className="status failed">
+            {loadError}{" "}
+            <button className="link" onClick={() => void refresh()}>
+              Retry
             </button>
-          </li>
-        ))}
-      </ul>
-      {docs.length > 1 && (
-        <p className="hint">Untick a document to leave it out of the search.</p>
+          </p>
+        )}
+        <ul className="docs">
+          {docs.length === 0 && !loadError && <li className="empty">No documents yet.</li>}
+          {docs.map((d) => {
+            const off = excluded.includes(d.name);
+            return (
+              <li key={d.name} className={`doc${off ? " off" : ""}`}>
+                <label className="doc-pick" title="Include in searches">
+                  <input type="checkbox" checked={!off} onChange={() => toggle(d.name)} />
+                  <span className="file-badge" aria-hidden="true">
+                    {extensionOf(d.name)}
+                  </span>
+                  <span className="doc-meta">
+                    <span className="doc-name" title={d.name}>
+                      {d.name}
+                    </span>
+                    <span className="doc-size">{formatSize(d.size_bytes)}</span>
+                  </span>
+                </label>
+                <button
+                  className="doc-delete"
+                  aria-label={`Remove ${d.name}`}
+                  title="Remove"
+                  disabled={deleting === d.name}
+                  onClick={() => void onDelete(d.name)}
+                >
+                  <TrashIcon size={16} />
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+        {docs.length > 1 && <p className="hint">Untick a document to leave it out of the search.</p>}
+      </div>
+
+      {!DEMO_MODE && (
+        <div className="sidebar-foot">
+          <LockIcon size={14} />
+          <span>Runs locally. Your files never leave this machine.</span>
+        </div>
       )}
     </aside>
   );
