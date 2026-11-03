@@ -231,6 +231,24 @@ class RagService:
         finally:
             temp.unlink(missing_ok=True)
 
+    def delete_document(self, name: str) -> int:
+        """Remove a file from the data directory and from the index.
+
+        Returns how many chunks were removed. Raises `FileNotFoundError` when the name is
+        neither a file in the data directory nor an indexed source, and `ValueError` when it
+        is not a plain file name (so it can never point outside the data directory).
+        """
+        if name != safe_filename(name) or name.startswith("."):
+            raise ValueError(f"Invalid file name '{name}'")
+        path = self.settings.data_dir / name
+        had_file = path.is_file()
+        removed = self.store.delete_by_source(name)
+        if not had_file and removed == 0:
+            raise FileNotFoundError(name)
+        if had_file:
+            path.unlink()
+        return removed
+
     # ---- retrieval -------------------------------------------------------
 
     def search(

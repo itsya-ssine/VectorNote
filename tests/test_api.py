@@ -66,3 +66,33 @@ def test_ingest_rejects_unsupported_type(client: TestClient) -> None:
 def test_ingest_rejects_corrupt_pdf(client: TestClient) -> None:
     r = client.post("/ingest", files={"file": ("broken.pdf", b"not a pdf", "application/pdf")})
     assert r.status_code == 422
+
+
+def test_delete_removes_the_file_and_its_chunks(client: TestClient, tmp_path: Path) -> None:
+    files = {"file": ("notes.txt", b"A mutex gives mutual exclusion.", "text/plain")}
+    added = client.post("/ingest", files=files).json()["chunks_added"]
+
+    r = client.delete("/documents/notes.txt")
+    assert r.status_code == 200
+    assert r.json() == {"filename": "notes.txt", "chunks_removed": added}
+    assert client.get("/documents").json() == []
+    assert not (tmp_path / "data" / "notes.txt").exists()
+
+    # the same file can be uploaded again afterwards: it is indexed from scratch
+    again = client.post("/ingest", files=files).json()
+    assert again["status"] == "added"
+
+
+def test_delete_unknown_document_is_404(client: TestClient) -> None:
+    assert client.delete("/documents/missing.pdf").status_code == 404
+
+
+@pytest.mark.parametrize("name", [".gitkeep", "..", "a b?.txt"])
+def test_delete_rejects_names_that_are_not_plain_file_names(
+    client: TestClient, tmp_path: Path, name: str
+) -> None:
+    (tmp_path / "data").mkdir()
+    (tmp_path / "data" / ".gitkeep").write_text("")
+    r = client.delete(f"/documents/{name}")
+    assert r.status_code in (404, 422)
+    assert (tmp_path / "data" / ".gitkeep").exists()
