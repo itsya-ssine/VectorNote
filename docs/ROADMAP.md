@@ -82,7 +82,7 @@ Phases 1 to 3 give you a working terminal tool, which is the core of the project
   - Done: 46 questions on a public Python textbook, validated with `vectornote eval check`.
 
 - [ ] **Task 13: Metrics and benchmarks** (`feat/eval-harness`)
-  - Status: the harness (`vectornote eval run`) is done; what remains is running it with the real embedding model, comparing, choosing defaults and publishing the table.
+  - Status: the harness (`vectornote eval run`) is done. Retrieval is benchmarked with the real embedding model (hybrid is the default, `VECTORNOTE_MIN_RELEVANCE` is 0.35) and the table is in the README. What remains: the answer benchmark (`eval run --answers --judge`) and the chunk-size comparison (`make bench`), then update the README table.
   - Retrieval: hit rate@k and MRR.
   - Generation: faithfulness and citation correctness, by manual check or an LLM judge.
   - Latency: measure query time so any speed claim in the README is backed by numbers.

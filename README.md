@@ -6,11 +6,11 @@ Offline, privacy-first RAG study assistant. Ingest your semester PDFs, slides an
 
 ## Status
 
-Work in progress. The full question-answering pipeline works from the command line and the API: ingest, hybrid search, and cited answers from a local LLM through Ollama. The evaluation harness and a 46-question evaluation set are in place; the benchmark results on the real embedding model are next, followed by the live chat UI. See the [roadmap](#roadmap).
+Work in progress. The full question-answering pipeline works from the command line and the API: ingest, hybrid search, and cited answers from a local LLM through Ollama. The evaluation harness, a 46-question evaluation set and the first retrieval benchmark are in place (see [Evaluation](#evaluation)); the answer-quality run and the chunk-size comparison are next, followed by the live chat UI. See the [roadmap](#roadmap).
 
 | Works today | Coming next |
 |---|---|
-| PDF / Markdown / text ingestion with cleaning | Benchmark results table (real embedding model, chunk sizes, search modes) |
+| PDF / Markdown / text ingestion with cleaning | Answer benchmark (citations, refusals, faithfulness) and chunk-size comparison |
 | Sentence-aware chunking with page-level citations | Live chat UI |
 | Incremental indexing (unchanged files are skipped) | Docker and the Vercel demo |
 | Vector, BM25 keyword and hybrid (RRF) search from the CLI | Reranking (optional) |
@@ -20,6 +20,7 @@ Work in progress. The full question-answering pipeline works from the command li
 | FastAPI endpoints for upload, listing, health and questions | |
 | Evaluation harness: question-set tools and `eval run` (hit rate, MRR, latency, citations, refusals) | |
 | Evaluation set: 46 questions with expected pages (`eval/questions.jsonl`) | |
+| Retrieval benchmark: hit rate, MRR and latency for vector, BM25 and hybrid, and a tuned relevance threshold | |
 
 ## How it works
 
@@ -110,7 +111,7 @@ Set these as environment variables. A `.env` file is not loaded automatically ye
 | `VECTORNOTE_CHROMA_DIR` | `chroma_db` | Where the index is stored |
 | `VECTORNOTE_EMBEDDING_MODEL` | `sentence-transformers/all-MiniLM-L6-v2` | Embedding model. `hashing` selects a tiny dependency-free embedder for tests and offline smoke runs (word matching only, no semantics). |
 | `VECTORNOTE_RETRIEVAL_MODE` | `hybrid` | Default search mode: `vector`, `bm25` or `hybrid` |
-| `VECTORNOTE_MIN_RELEVANCE` | `0.25` | Minimum cosine similarity for a passage to be used in an answer (tune it with the threshold table of `eval run`) |
+| `VECTORNOTE_MIN_RELEVANCE` | `0.35` | Minimum cosine similarity for a passage to be used in an answer (chosen from the threshold table of `eval run`, see [Evaluation](#evaluation)) |
 | `VECTORNOTE_CHUNK_SIZE` | `800` | Target chunk size in characters. Re-index into a fresh `VECTORNOTE_CHROMA_DIR` after changing it |
 | `VECTORNOTE_CHUNK_OVERLAP` | `100` | Characters shared by neighbouring chunks |
 | `VECTORNOTE_LLM_MODEL` | `llama3.2:3b` | Ollama model used for answers |
@@ -135,7 +136,37 @@ uv run vectornote eval run --answers --judge     # answers, citations, refusals 
 uv run vectornote eval run --format markdown     # tables ready to paste here
 ```
 
-No results are published yet: the numbers have to come from the real embedding model and a local LLM, and a table here must never be a guess. Once measured, the table goes in this section.
+### Results
+
+Measured on the 46 questions above with `all-MiniLM-L6-v2`, chunks of 800 characters (100 overlap), top 5, on the index of `Python_Programming.pdf` (229 chunks). 4 follow-up questions need the model to rewrite them and are not part of the retrieval numbers, so retrieval is measured on 35 answerable and 7 unanswerable questions.
+
+| Mode | hit@1 | hit@3 | hit@5 | MRR | p50 latency | p95 latency |
+|---|---|---|---|---|---|---|
+| vector | 63% | 91% | 97% | 0.77 | 13.3 ms | 25.4 ms |
+| bm25 | 66% | 91% | 97% | 0.78 | 0.8 ms | 1.2 ms |
+| **hybrid (default)** | **77%** | **100%** | **100%** | **0.87** | 18.3 ms | 30.4 ms |
+
+- **Hybrid is the default because it is the best mode.** Each single mode misses one question in the top 5 (vector: `q034`, BM25: `q003`); hybrid finds both, and puts the right page first for 77% of the questions against about 65% for either mode alone. It costs a few milliseconds more than vector search alone.
+- **Latency** is the time of one `search` call after a warm-up, so it does not include loading the embedding model. Search is far from being the slow part of an answer; the local LLM is.
+- **The relevance threshold** decides when VectorNote answers "I couldn't find it" without calling the model. From the hybrid table below, `0.35` is the highest value that still keeps every answerable question, and it refuses twice as many unanswerable ones as the old `0.25`. Higher values refuse more but start to lose real questions (`0.40` loses 6%, `0.45` loses 11%).
+
+| Threshold | Answerable questions kept | Unanswerable questions refused |
+|---|---|---|
+| 0.25 (previous default) | 100% | 14% |
+| 0.30 | 100% | 14% |
+| **0.35 (default)** | **100%** | **29%** |
+| 0.40 | 94% | 57% |
+| 0.45 | 89% | 86% |
+| 0.50 | 69% | 86% |
+
+Limits of these numbers: one textbook and 35 answerable questions, so a single question moves hit rates by about 3 points and the differences between vector and BM25 are within noise. The threshold only filters passages; the model still refuses on its own when the passages do not contain the answer, which `--answers` measures. Answer quality (citation correctness, refusals, faithfulness) and the chunk-size comparison are not measured yet. To produce them:
+
+```bash
+uv run vectornote eval run --answers --judge --format markdown   # needs Ollama
+make bench                                                       # chunk sizes 400, 800, 1200 (re-indexes into .bench/)
+```
+
+The raw output of the run above is in [eval/results/chunks-800.md](eval/results/chunks-800.md).
 
 ## Privacy
 
@@ -190,7 +221,8 @@ docs/             architecture notes
   - [x] Question set format, scaffolding and checker, with a public example
   - [x] Write `eval/questions.jsonl` (46 questions, expected pages verified against the index)
   - [x] Metrics harness: hit rate, MRR, latency, citation correctness, refusals, optional faithfulness judge (`vectornote eval run`)
-  - [ ] Run it with the real embedding model, compare chunk sizes and search modes, tune `VECTORNOTE_MIN_RELEVANCE`, and put the results table here
+  - [x] Retrieval benchmark with the real embedding model: search modes compared, `VECTORNOTE_MIN_RELEVANCE` tuned, results table published
+  - [ ] Answer benchmark (`--answers --judge`) and chunk-size comparison (`make bench`)
 - [ ] **Phase 5:** live chat UI
 - [ ] **Phase 6:** Vercel demo
 - [ ] **Phase 7:** Docker, demo video, v1.0.0
