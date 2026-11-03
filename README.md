@@ -6,11 +6,11 @@ Offline, privacy-first RAG study assistant. Ingest your semester PDFs, slides an
 
 ## Status
 
-Work in progress. The full question-answering pipeline works from the command line and the API: ingest, hybrid search, and cited answers from a local LLM through Ollama. The evaluation harness, a 46-question evaluation set and the first retrieval benchmark are in place (see [Evaluation](#evaluation)); the answer-quality run and the chunk-size comparison are next, followed by the live chat UI. See the [roadmap](#roadmap).
+Work in progress. The full question-answering pipeline works from the command line and the API: ingest, hybrid search, and cited answers from a local LLM through Ollama. The evaluation harness, a 46-question evaluation set and the benchmarks (retrieval, chunk sizes, answers) are done (see [Evaluation](#evaluation)); the live chat UI is next. See the [roadmap](#roadmap).
 
 | Works today | Coming next |
 |---|---|
-| PDF / Markdown / text ingestion with cleaning | Answer benchmark (citations, refusals, faithfulness) and chunk-size comparison |
+| PDF / Markdown / text ingestion with cleaning | Live chat UI |
 | Sentence-aware chunking with page-level citations | Live chat UI |
 | Incremental indexing (unchanged files are skipped) | Docker and the Vercel demo |
 | Vector, BM25 keyword and hybrid (RRF) search from the CLI | Reranking (optional) |
@@ -20,7 +20,7 @@ Work in progress. The full question-answering pipeline works from the command li
 | FastAPI endpoints for upload, listing, health and questions | |
 | Evaluation harness: question-set tools and `eval run` (hit rate, MRR, latency, citations, refusals) | |
 | Evaluation set: 46 questions with expected pages (`eval/questions.jsonl`) | |
-| Retrieval benchmark: hit rate, MRR and latency for vector, BM25 and hybrid, and a tuned relevance threshold | |
+| Benchmarks: retrieval (vector, BM25, hybrid), chunk sizes, tuned relevance threshold, answer quality | |
 
 ## How it works
 
@@ -159,14 +159,47 @@ Measured on the 46 questions above with `all-MiniLM-L6-v2`, chunks of 800 charac
 | 0.45 | 89% | 86% |
 | 0.50 | 69% | 86% |
 
-Limits of these numbers: one textbook and 35 answerable questions, so a single question moves hit rates by about 3 points and the differences between vector and BM25 are within noise. The threshold only filters passages; the model still refuses on its own when the passages do not contain the answer, which `--answers` measures. Answer quality (citation correctness, refusals, faithfulness) and the chunk-size comparison are not measured yet. To produce them:
+**Chunk size** (hybrid search; the whole index is rebuilt for each size with `make bench`):
+
+| Chunk size (overlap) | Chunks | hit@1 | hit@3 | hit@5 | MRR | Vector-only hit@1 | Threshold 0.35 keeps |
+|---|---|---|---|---|---|---|---|
+| 400 (50) | 386 | 83% | 97% | 100% | 0.90 | 74% | 100% |
+| **800 (100), default** | 229 | 77% | 100% | 100% | 0.87 | 63% | 100% |
+| 1200 (150) | 172 | 74% | 97% | 100% | 0.86 | 60% | 97% |
+
+Smaller chunks rank the right page higher (+6 points of hit@1 from 800 to 400, which is two questions), while 1200 is slightly worse everywhere and starts to lose answerable questions at the 0.35 threshold. The default stays at 800 for now: the answer benchmark below was measured with it, 400 loses one question at hit@3, and the difference is within the noise of a 35-question set. 400 is the candidate to beat: it also gives the model smaller passages, so check it with the answer benchmark before switching (command below).
+
+**Answers** (`llama3.2:3b` through Ollama, hybrid search, threshold 0.35, 800-character chunks, all 46 questions including the 4 follow-ups):
+
+| Metric | Result |
+|---|---|
+| Answered (of the answerable questions) | 97% |
+| Refused correctly (of the unanswerable questions) | 100% |
+| Answers with `[n]` citations | 89% |
+| Citation on an expected page | 79% |
+| Keyword coverage | 85% |
+| Faithfulness (model judge) | 79% (38 judged) |
+| Latency p50 / p95 | 54.2 s / 78.0 s |
+
+- **The refusal path works:** all 7 unanswerable questions got "I couldn't find it", and only one answerable question (1 of 39) was refused by mistake.
+- **Citations are the weak spot.** About one answer in ten has no `[n]` marker, and 79% cite a page that is on the expected list. Prompt wording and a larger model are the first things to try.
+- **Faithfulness is a rough signal.** The judge is the same 3B model, so 79% means "about one answer in five deserves a manual look", not that 21% of answers are wrong. `eval run --output` saves every answer with its sources for that review.
+- **Generation is the slow part:** a search takes about 20 ms, an answer about 54 s at the median on the machine used here (it depends on hardware, model size and context length). Streaming hides most of that wait in the UI.
+
+Limits of these numbers: one textbook and 35 answerable questions, so a single question moves hit rates by about 3 points and most differences between modes and chunk sizes are within noise. Retrieval latency varies from run to run (vector p50 13 to 21 ms across three runs). The answer numbers come from a single run with a small model that is not deterministic.
+
+To reproduce them:
 
 ```bash
-uv run vectornote eval run --answers --judge --format markdown   # needs Ollama
 make bench                                                       # chunk sizes 400, 800, 1200 (re-indexes into .bench/)
+uv run vectornote eval run --answers --judge --format markdown   # answers, needs Ollama
+
+# the same answer benchmark on the 400-character index built by `make bench`
+VECTORNOTE_CHUNK_SIZE=400 VECTORNOTE_CHUNK_OVERLAP=50 VECTORNOTE_CHROMA_DIR=.bench/chroma_400 \
+  uv run vectornote eval run --answers --judge --format markdown
 ```
 
-The raw output of the run above is in [eval/results/chunks-800.md](eval/results/chunks-800.md).
+The raw output is in [eval/results/](eval/results/): `chunks-400.md`, `chunks-800.md`, `chunks-1200.md` and `answers-800.md`.
 
 ## Privacy
 
@@ -217,12 +250,12 @@ docs/             architecture notes
   - [x] Cited answers, refusal path, `ask` command and `/ask` endpoint
   - [x] Streaming
   - [x] Conversation memory
-- [ ] **Phase 4:** evaluation
+- [x] **Phase 4:** evaluation
   - [x] Question set format, scaffolding and checker, with a public example
   - [x] Write `eval/questions.jsonl` (46 questions, expected pages verified against the index)
   - [x] Metrics harness: hit rate, MRR, latency, citation correctness, refusals, optional faithfulness judge (`vectornote eval run`)
   - [x] Retrieval benchmark with the real embedding model: search modes compared, `VECTORNOTE_MIN_RELEVANCE` tuned, results table published
-  - [ ] Answer benchmark (`--answers --judge`) and chunk-size comparison (`make bench`)
+  - [x] Answer benchmark (`--answers --judge`) and chunk-size comparison (`make bench`)
 - [ ] **Phase 5:** live chat UI
 - [ ] **Phase 6:** Vercel demo
 - [ ] **Phase 7:** Docker, demo video, v1.0.0
