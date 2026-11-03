@@ -81,8 +81,8 @@ Phases 1 to 3 give you a working terminal tool, which is the core of the project
   - Write 30-50 questions from your own course material, each with the expected source and page and a reference answer. Keep them in `eval/questions.jsonl`.
   - Done: 46 questions on a public Python textbook, validated with `vectornote eval check`.
 
-- [ ] **Task 13: Metrics and benchmarks** (`feat/eval-harness`)
-  - Status: the harness (`vectornote eval run`) is done. Retrieval is benchmarked with the real embedding model (hybrid is the default, `VECTORNOTE_MIN_RELEVANCE` is 0.35) and the table is in the README. What remains: the answer benchmark (`eval run --answers --judge`) and the chunk-size comparison (`make bench`), then update the README table.
+- [x] **Task 13: Metrics and benchmarks** (`feat/eval-harness`)
+  - Done: retrieval, chunk sizes (400, 800, 1200) and answers are benchmarked and the tables are in the README. Defaults: hybrid search, 800-character chunks, `VECTORNOTE_MIN_RELEVANCE` 0.35. Open question: whether 400-character chunks improve the answers (see the README).
   - Retrieval: hit rate@k and MRR.
   - Generation: faithfulness and citation correctness, by manual check or an LLM judge.
   - Latency: measure query time so any speed claim in the README is backed by numbers.
