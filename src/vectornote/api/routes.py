@@ -16,6 +16,7 @@ from vectornote.api.deps import get_service, get_settings
 from vectornote.api.schemas import (
     AskRequest,
     AskResponse,
+    DeleteResponse,
     DocumentInfo,
     HealthResponse,
     IngestResponse,
@@ -49,6 +50,18 @@ def list_documents(settings: SettingsDep) -> list[DocumentInfo]:
         for p in sorted(data_dir.iterdir())
         if p.is_file() and not p.name.startswith(".")
     ]
+
+
+@router.delete("/documents/{name}", response_model=DeleteResponse)
+def delete_document(name: str, service: ServiceDep) -> DeleteResponse:
+    """Remove a file from the data directory and drop its chunks from the index."""
+    try:
+        removed = service.delete_document(name)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=f"No document named '{name}'") from exc
+    return DeleteResponse(filename=name, chunks_removed=removed)
 
 
 @router.post("/ingest", response_model=IngestResponse)

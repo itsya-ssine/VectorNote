@@ -91,8 +91,9 @@ Phases 1 to 3 give you a working terminal tool, which is the core of the project
 
 ## Phase 5: Live UI
 
-- [ ] **Task 14: Connect the React UI** (`feat/web-live`)
+- [x] **Task 14: Connect the React UI** (`feat/web-live`)
   - Streaming answers in the chat, upload progress and errors, document list with delete, source filter.
+  - Done: `/ask/stream` is consumed with `fetch` (stop button, follow-ups send the last 10 messages, the rewritten question is shown), uploads report progress and then "indexing", each file succeeds or fails on its own, `DELETE /documents/{name}` removes a file and its chunks, and unticking a document leaves it out of the search (`sources`).
 
 - [ ] **Task 15: Citation experience** (`feat/web-citations`)
   - Clickable citations that highlight the matching source card, a copy-answer button, empty and error states.

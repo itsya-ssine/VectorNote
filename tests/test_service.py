@@ -226,3 +226,27 @@ def test_search_uses_the_default_top_k_and_filters(
     only_net = service.search("mutex", sources=["net.txt"])
     assert {r.chunk.source for r in only_net} == {"net.txt"}
     assert service.indexed_sources() == {"net.txt": 1, "os.txt": 1}
+
+
+def test_delete_document_removes_file_and_chunks(service: RagService, settings: Settings) -> None:
+    service.ingest_upload("notes.txt", b"A mutex gives mutual exclusion.")
+    removed = service.delete_document("notes.txt")
+    assert removed >= 1
+    assert service.index_size() == 0
+    assert not (settings.data_dir / "notes.txt").exists()
+
+
+def test_delete_document_also_cleans_an_index_entry_without_a_file(
+    service: RagService, settings: Settings
+) -> None:
+    service.ingest_upload("notes.txt", b"A mutex gives mutual exclusion.")
+    (settings.data_dir / "notes.txt").unlink()
+    assert service.delete_document("notes.txt") >= 1
+    with pytest.raises(FileNotFoundError):
+        service.delete_document("notes.txt")
+
+
+@pytest.mark.parametrize("name", ["../secret.txt", "a/b.txt", ".upload-x.pdf", ""])
+def test_delete_document_rejects_unsafe_names(service: RagService, name: str) -> None:
+    with pytest.raises(ValueError):
+        service.delete_document(name)

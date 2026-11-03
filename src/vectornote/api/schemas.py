@@ -45,3 +45,8 @@ class IngestResponse(BaseModel):
     filename: str
     status: str
     chunks_added: int
+
+
+class DeleteResponse(BaseModel):
+    filename: str
+    chunks_removed: int
