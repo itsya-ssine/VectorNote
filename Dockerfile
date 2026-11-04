@@ -32,7 +32,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     uv pip install --python /opt/venv/bin/python --no-deps .
 
 # 3. The embedding model, downloaded once at build time so the running container needs no network.
-ARG EMBEDDING_MODEL=sentence-transformers/all-MiniLM-L6-v2docker compose config -q && echo "compose file ok"
+ARG EMBEDDING_MODEL=sentence-transformers/all-MiniLM-L6-v2
 RUN /opt/venv/bin/python -c "import sys; from sentence_transformers import SentenceTransformer; SentenceTransformer(sys.argv[1])" "$EMBEDDING_MODEL"
 
 
