@@ -103,9 +103,11 @@ Phases 1 to 3 give you a working terminal tool, which is the core of the project
 
 ## Phase 6: Vercel demo
 
-- [ ] **Task 17: Static demo deployment** (`feat/demo`)
-  - Import the repo on Vercel with Root Directory `web`. The production build already runs in demo mode.
-  - Add more canned Q&A, a "run it locally" link to the README, and put the live URL in the README.
+- [ ] **Task 17: Static demo deployment** (`feat/vercel-demo`)
+  - [x] More canned Q&A: seven topics over three demo documents, follow-ups understood from the history, refusal for anything else, document filter respected.
+  - [x] "Run it locally" link in the demo banner, `web/vercel.json` (build settings, caching, security headers), Open Graph tags.
+  - [x] `npm run check:demo` in CI and `make check`: the production bundle has no backend code and the deployment config is valid.
+  - [ ] Import the repo on Vercel with Root Directory `web` and put the live URL in the README.
 
 ## Phase 7: Packaging and showcase
 

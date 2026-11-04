@@ -20,6 +20,7 @@ import { SourceCard } from "./SourceCard";
 const SUGGESTIONS = [
   "What is a mutex and how can it cause a deadlock?",
   "How does a subnet mask work?",
+  "What is the difference between TCP and UDP?",
 ];
 
 const MAX_TURN_CHARS = 8000; // the API rejects longer messages

@@ -7,7 +7,7 @@ Two modes, one codebase:
 | Mode | When | Behavior |
 |---|---|---|
 | **Live** | `VITE_DEMO_MODE=false` | Talks to the FastAPI backend at `VITE_API_URL` |
-| **Static demo** | `VITE_DEMO_MODE=true` (set in `.env.production`) | Canned answers with citations and a "Static Demo Mode" banner. This is what Vercel deploys. |
+| **Static demo** | `VITE_DEMO_MODE=true` (set in `.env.production`) | Canned answers with citations and a banner that links to the setup instructions. This is what Vercel deploys. |
 
 ## What the live UI does
 
@@ -29,6 +29,16 @@ Two modes, one codebase:
 - **Search filter:** untick a document to leave it out of the search. Nothing is filtered until you untick one.
 
 In static demo mode the same screens run on canned data, so uploads and deletes only change the list in the page.
+
+### What the demo knows
+
+Seven topics over three made-up documents (`operating-systems-lecture-05.pdf`, `networks-summary.md`, `databases-exam-notes.pdf`): locks and deadlocks, subnets, TCP and UDP, paging, scheduling, SQL joins, and ACID transactions. It behaves like the real app where it can:
+
+- answers stream word by word, with numbered citations that open the matching passage;
+- a short follow-up such as "explain that more" is understood from the conversation and shown as a rewritten question;
+- a question outside these topics gets the same "I couldn't find the answer" refusal as the real app, and unticking a document hides the answers that need it.
+
+The topics live in `src/lib/demo.ts`; add one by copying an entry of `TOPICS`.
 
 ## Keyboard shortcuts
 
@@ -68,5 +78,14 @@ npm run preview      # serve the production build locally (demo mode)
 
 ## Deploy the demo to Vercel
 
-Import the GitHub repo and set **Root Directory** to `web`. Vercel detects Vite
-(build command `npm run build`, output `dist`), so no other configuration is needed.
+The demo is a static site: no server, no API keys, no environment variables to set.
+
+1. On [vercel.com/new](https://vercel.com/new), import the GitHub repository.
+2. Set **Root Directory** to `web`. Everything else comes from `web/vercel.json` (Vite, `npm ci`, `npm run build`, output `dist`).
+3. Deploy. Every push to `main` then redeploys, and every pull request gets a preview URL.
+
+Or from the terminal, in `web/`: `npx vercel` for a preview and `npx vercel --prod` for production.
+
+`vercel.json` also caches the hashed files in `assets/` for a year and sets security headers, including a Content-Security-Policy that only allows the site's own files (the demo makes no network requests). If you point a build at a real API, add its address to `connect-src`.
+
+`npm run check:demo` (run by CI and `make check` after the build) fails if the bundle contains backend code (`/ask/stream`, `localhost:8000`), if a file `index.html` points to is missing, or if `vercel.json` is invalid. So a broken demo is caught before Vercel sees it.

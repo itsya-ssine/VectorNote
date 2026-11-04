@@ -132,6 +132,7 @@ button:disabled { cursor: not-allowed; }
   border-bottom: 1px solid var(--banner-border);
 }
 .banner svg { flex-shrink: 0; }
+.banner a { color: inherit; font-weight: 600; text-underline-offset: 2px; }
 
 .backdrop { display: none; }
 

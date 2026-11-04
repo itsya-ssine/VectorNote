@@ -56,7 +56,7 @@ export async function askStream(
   handlers: StreamHandlers,
   options: AskOptions = {},
 ): Promise<AskResult> {
-  if (DEMO_MODE) return demoStream(question, handlers, options.signal);
+  if (DEMO_MODE) return demoStream(question, handlers, options);
 
   let res: Response;
   try {
@@ -104,10 +104,12 @@ export async function askStream(
 async function demoStream(
   question: string,
   handlers: StreamHandlers,
-  signal?: AbortSignal,
+  options: AskOptions,
 ): Promise<AskResult> {
+  const { signal } = options;
   await sleep(500, signal);
-  const result = demoResult(question);
+  const result = demoResult(question, options.history, options.sources);
+  if (result.standalone_question) handlers.onQuery?.(result.standalone_question);
   for (const word of result.answer.split(/(?<= )/)) {
     await sleep(35, signal);
     handlers.onToken(word);
