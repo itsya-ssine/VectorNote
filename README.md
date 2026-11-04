@@ -87,6 +87,8 @@ Open <http://localhost:3000>. The first start downloads the language model (abou
 - **Start over:** `docker compose down` stops everything and keeps your data; add `-v` to also delete the index and the downloaded models.
 - **Permission denied on `data/`:** the API runs as user 1000. If yours is different, run `sudo chown -R 1000 data`.
 
+Needs Docker 23 or newer with the Compose plugin (Docker Desktop has both). If `docker build` says "the --mount option requires BuildKit", install the buildx plugin (`sudo apt install docker-buildx-plugin`), or build through Compose with `docker compose build`.
+
 The API image uses the CPU build of PyTorch (about 2 GB instead of 7 GB or more with CUDA). The web image serves the built UI with nginx and forwards `/api` to the API, so the browser only talks to one address.
 
 ### Run the API and the web UI
