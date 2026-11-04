@@ -260,7 +260,7 @@ docs/             architecture notes
   - [x] Answer benchmark (`--answers --judge`) and chunk-size comparison (`make bench`)
 - [ ] **Phase 5:** live chat UI
   - [x] Connect the React UI: streaming answers, follow-ups, upload progress and errors, delete, source filter
-  - [ ] Citation experience (clickable citations, copy button, empty and error states)
+  - [x] Citation experience (clickable citations, copy buttons, empty and error states)
   - [ ] Polish (mobile, keyboard shortcuts, loading skeletons)
 - [ ] **Phase 6:** Vercel demo
 - [ ] **Phase 7:** Docker, demo video, v1.0.0
