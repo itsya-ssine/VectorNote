@@ -261,7 +261,7 @@ docs/             architecture notes
 - [ ] **Phase 5:** live chat UI
   - [x] Connect the React UI: streaming answers, follow-ups, upload progress and errors, delete, source filter
   - [x] Citation experience (clickable citations, copy buttons, empty and error states)
-  - [ ] Polish (mobile, keyboard shortcuts, loading skeletons)
+  - [x] Polish (mobile, keyboard shortcuts, loading skeletons)
 - [ ] **Phase 6:** Vercel demo
 - [ ] **Phase 7:** Docker, demo video, v1.0.0
 
