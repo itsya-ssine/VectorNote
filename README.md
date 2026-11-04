@@ -2,16 +2,16 @@
 
 Offline, privacy-first RAG study assistant. Ingest your semester PDFs, slides and notes, then search them locally, with every result tied to the file and page it came from. No cloud API, no cost, and your documents never leave your machine.
 
-**Stack:** Python 3.11+, FastAPI, ChromaDB, sentence-transformers (`all-MiniLM-L6-v2`), Ollama, React + TypeScript (Vite). A static demo of the same UI deploys to Vercel.
+**Stack:** Python 3.11+, FastAPI, ChromaDB, sentence-transformers (`all-MiniLM-L6-v2`), Ollama, React + TypeScript (Vite). **[Live demo](https://vector-note.vercel.app/)**: the same UI on canned answers, no install needed (the real thing runs on your machine with your documents).
 
 ## Status
 
-Work in progress. The full question-answering pipeline works from the command line, the API and a web UI: ingest, hybrid search, and cited answers from a local LLM through Ollama. The evaluation harness, a 46-question evaluation set and the benchmarks (retrieval, chunk sizes, answers) are done (see [Evaluation](#evaluation)), and the web UI is feature complete (see [Web UI](#web-ui)). What is left is the public demo, packaging and an optional reranker. See the [roadmap](#roadmap).
+Work in progress. The full question-answering pipeline works from the command line, the API and a web UI: ingest, hybrid search, and cited answers from a local LLM through Ollama. The evaluation harness, a 46-question evaluation set and the benchmarks (retrieval, chunk sizes, answers) are done (see [Evaluation](#evaluation)), and the web UI is feature complete (see [Web UI](#web-ui)). The public demo is live. What is left is Docker packaging, upload limits and the v1.0.0 release, plus an optional reranker. See the [roadmap](#roadmap).
 
 | Works today | Coming next |
 |---|---|
-| PDF / Markdown / text ingestion with cleaning | Static demo on Vercel (ready to deploy, see [web/README.md](web/README.md#deploy-the-demo-to-vercel)) |
-| Sentence-aware chunking with page-level citations | Docker setup |
+| PDF / Markdown / text ingestion with cleaning | Docker setup |
+| Sentence-aware chunking with page-level citations | Upload limits and more tests |
 | Incremental indexing (unchanged files are skipped) | Demo video and the v1.0.0 release |
 | Vector, BM25 keyword and hybrid (RRF) search from the CLI | Reranking (optional) |
 | Cited answers from a local LLM (`ask`, `POST /ask`), with an "I couldn't find it" path | |
@@ -22,6 +22,7 @@ Work in progress. The full question-answering pipeline works from the command li
 | Evaluation set: 46 questions with expected pages (`eval/questions.jsonl`) | |
 | Benchmarks: retrieval (vector, BM25, hybrid), chunk sizes, tuned relevance threshold, answer quality | |
 | Web UI: streaming chat with follow-ups and a stop button, clickable citations with copy buttons, upload with progress, document list with delete, per-document search filter, keyboard shortcuts, mobile layout | |
+| [Live demo on Vercel](https://vector-note.vercel.app/) with canned answers and no backend | |
 
 ## How it works
 
@@ -88,7 +89,7 @@ The React UI talks to the API and works on desktop and phone-sized screens. More
 - **Citations:** the `[1]` markers are buttons that open the sources, scroll to the passage and highlight it. Each answer and each passage has a copy button.
 - **Documents:** upload several files at once with per-file progress, remove a file and its passages, and untick a document to leave it out of the search.
 - **States:** an empty index explains how to add a document, failed answers have a "Try again" button, and "I couldn't find it" replies are styled as refusals.
-- **Demo:** the same UI runs as a static site with canned answers (seven topics, follow-ups, refusals) and no backend. It is built from `web/` and deployed to Vercel; see [web/README.md](web/README.md#deploy-the-demo-to-vercel).
+- **Demo:** the same UI runs as a static site with canned answers (seven topics, follow-ups, refusals) and no backend. It is live at https://vector-note.vercel.app/, built from `web/` and deployed to Vercel; see [web/README.md](web/README.md#deploy-the-demo-to-vercel).
 - **Shortcuts:** `/` focuses the question, `Esc` stops the answer (or closes the drawer on small screens), `Alt+N` starts a new chat.
 
 ## Command line
@@ -275,9 +276,9 @@ docs/             architecture notes and the detailed task roadmap (ROADMAP.md)
   - [x] Connect the React UI: streaming answers, follow-ups, upload progress and errors, delete, source filter
   - [x] Citation experience (clickable citations, copy buttons, empty and error states)
   - [x] Polish (mobile, keyboard shortcuts, loading skeletons)
-- [ ] **Phase 6:** Vercel demo
+- [x] **Phase 6:** Vercel demo
   - [x] Demo content (seven topics, follow-ups, refusals), `vercel.json`, CI check that the build needs no backend
-  - [ ] Import the repo on Vercel and put the live link here
+  - [x] Live at https://vector-note.vercel.app/
 - [ ] **Phase 7:** Docker, demo video, v1.0.0
 
 ## License
