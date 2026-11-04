@@ -6,22 +6,22 @@ Offline, privacy-first RAG study assistant. Ingest your semester PDFs, slides an
 
 ## Status
 
-Work in progress. The full question-answering pipeline works from the command line and the API: ingest, hybrid search, and cited answers from a local LLM through Ollama. The evaluation harness, a 46-question evaluation set and the benchmarks (retrieval, chunk sizes, answers) are done (see [Evaluation](#evaluation)); the web UI now works against the API (streaming chat with follow-ups, uploads with progress, delete, per-document filter), and clickable citations and the demo deployment are next. See the [roadmap](#roadmap).
+Work in progress. The full question-answering pipeline works from the command line, the API and a web UI: ingest, hybrid search, and cited answers from a local LLM through Ollama. The evaluation harness, a 46-question evaluation set and the benchmarks (retrieval, chunk sizes, answers) are done (see [Evaluation](#evaluation)), and the web UI is feature complete (see [Web UI](#web-ui)). What is left is the public demo, packaging and an optional reranker. See the [roadmap](#roadmap).
 
 | Works today | Coming next |
 |---|---|
-| PDF / Markdown / text ingestion with cleaning | Citation experience in the UI (clickable citations, copy button) |
-| Sentence-aware chunking with page-level citations | UI polish (mobile layout, keyboard shortcuts, loading states) |
-| Incremental indexing (unchanged files are skipped) | Docker and the Vercel demo |
+| PDF / Markdown / text ingestion with cleaning | Static demo on Vercel (canned answers, no backend) |
+| Sentence-aware chunking with page-level citations | Docker setup |
+| Incremental indexing (unchanged files are skipped) | Demo video and the v1.0.0 release |
 | Vector, BM25 keyword and hybrid (RRF) search from the CLI | Reranking (optional) |
 | Cited answers from a local LLM (`ask`, `POST /ask`), with an "I couldn't find it" path | |
 | Streaming answers word by word (CLI and Server-Sent Events) | |
 | Conversation memory: follow-ups like "explain that more" are rewritten before searching (`chat`) | |
-| FastAPI endpoints for upload, listing, health and questions | |
+| FastAPI endpoints for upload, listing, delete, health and questions | |
 | Evaluation harness: question-set tools and `eval run` (hit rate, MRR, latency, citations, refusals) | |
 | Evaluation set: 46 questions with expected pages (`eval/questions.jsonl`) | |
 | Benchmarks: retrieval (vector, BM25, hybrid), chunk sizes, tuned relevance threshold, answer quality | |
-| Web UI: streaming chat with follow-ups and a stop button, upload with progress, document list with delete, per-document search filter | |
+| Web UI: streaming chat with follow-ups and a stop button, clickable citations with copy buttons, upload with progress, document list with delete, per-document search filter, keyboard shortcuts, mobile layout | |
 
 ## How it works
 
@@ -46,7 +46,7 @@ PDFs / notes -> load -> clean -> chunk -> embed -> ChromaDB
 Requirements: [uv](https://docs.astral.sh/uv/), Python 3.11+, and (for the UI) Node 20+. Ollama is only needed for `ask`.
 
 ```bash
-git clone https://github.com/<your-username>/VectorNote.git
+git clone https://github.com/itsya-ssine/VectorNote.git
 cd VectorNote
 uv sync
 
@@ -78,6 +78,18 @@ npm install
 npm run dev                                 # UI on http://localhost:3000
 ```
 
+Ollama must be running for answers (`ollama serve`, and `ollama pull llama3.2:3b` once). Without a backend the UI still opens; set `VITE_DEMO_MODE=true` in `web/.env.local` to try it on canned answers.
+
+## Web UI
+
+The React UI talks to the API and works on desktop and phone-sized screens. More detail in [web/README.md](web/README.md).
+
+- **Chat:** answers stream in word by word, with a Stop button; follow-up questions work because the last messages are sent along, and the rewritten question is shown. A "Follow answer" button appears when you scroll up while an answer is being written.
+- **Citations:** the `[1]` markers are buttons that open the sources, scroll to the passage and highlight it. Each answer and each passage has a copy button.
+- **Documents:** upload several files at once with per-file progress, remove a file and its passages, and untick a document to leave it out of the search.
+- **States:** an empty index explains how to add a document, failed answers have a "Try again" button, and "I couldn't find it" replies are styled as refusals.
+- **Shortcuts:** `/` focuses the question, `Esc` stops the answer (or closes the drawer on small screens), `Alt+N` starts a new chat.
+
 ## Command line
 
 | Command | What it does |
@@ -100,8 +112,8 @@ npm run dev                                 # UI on http://localhost:3000
 | `GET` | `/documents` | done: files in `data/` |
 | `DELETE` | `/documents/{name}` | done: remove the file from `data/` and its chunks from the index (404 if unknown) |
 | `POST` | `/ingest` | done: upload a file and index it (415 for unsupported types, 422 for unreadable files) |
+| `POST` | `/ask` | done: `{question, top_k?, sources?, mode?, history?}` where `history` is the earlier messages `[{role: "user"\|"assistant", content}]` (the server keeps no conversation state; the client sends it each time). Returns `{answer, answered, standalone_question, cited, sources[]}`; 503 if Ollama is down or the model is missing |
 | `POST` | `/ask/stream` | done: same request as `/ask`, answered as Server-Sent Events: a `query` event (`{"question"}`) when a follow-up was rewritten, many `token` events (`{"text"}`), then `done` (same JSON as `/ask`), or `error` (`{"detail"}`) if the model fails midway. Closing the connection stops the model. |
-| `POST` | `/ask` | done: `{question, top_k?, sources?, mode?, history?}` where `history` is the earlier messages `[{role: "user"|"assistant", content}]` (the server keeps no conversation state; the client sends it each time) returns `{answer, answered, standalone_question, cited, sources[]}`; 503 if Ollama is down or the model is missing |
 
 ## Configuration
 
@@ -232,12 +244,12 @@ src/vectornote/
   store/          ChromaDB persistence
   retrieval/      vector search, BM25, rank fusion (hybrid)
   generation/     Ollama client, prompts, citation parsing, query rewriting
-  evaluation/     evaluation question set: format, checks, scaffolding
+  evaluation/     question set format, checks, scaffolding, metrics, runner and report, answer judge
 web/              React + TypeScript UI (live mode and static demo mode)
-scripts/          smoke tests for Ollama and the vector store, example corpus generator
-eval/             evaluation question set and a small public example
+scripts/          smoke tests for Ollama and the vector store, example corpus generator, chunk-size benchmark
+eval/             evaluation question set, a small public example and the benchmark results
 tests/            pytest suite
-docs/             architecture notes
+docs/             architecture notes and the detailed task roadmap (ROADMAP.md)
 ```
 
 ## Roadmap
@@ -258,7 +270,7 @@ docs/             architecture notes
   - [x] Metrics harness: hit rate, MRR, latency, citation correctness, refusals, optional faithfulness judge (`vectornote eval run`)
   - [x] Retrieval benchmark with the real embedding model: search modes compared, `VECTORNOTE_MIN_RELEVANCE` tuned, results table published
   - [x] Answer benchmark (`--answers --judge`) and chunk-size comparison (`make bench`)
-- [ ] **Phase 5:** live chat UI
+- [x] **Phase 5:** live chat UI
   - [x] Connect the React UI: streaming answers, follow-ups, upload progress and errors, delete, source filter
   - [x] Citation experience (clickable citations, copy buttons, empty and error states)
   - [x] Polish (mobile, keyboard shortcuts, loading skeletons)
