@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Chat } from "./components/Chat";
 import { DemoBanner } from "./components/DemoBanner";
 import { Sidebar } from "./components/Sidebar";
@@ -10,6 +10,15 @@ export default function App() {
   const [excluded, setExcluded] = useState<string[]>([]);
   const [navOpen, setNavOpen] = useState(false);
   const closeNav = useCallback(() => setNavOpen(false), []);
+  useEffect(() => {
+    if (!navOpen) return;
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") closeNav();
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [navOpen, closeNav]);
+
   const onDocumentsChange = useCallback((names: string[]) => {
     setDocuments(names);
     setDocumentsLoaded(true);

@@ -127,3 +127,9 @@ export const RetryIcon = (p: IconProps) => (
     <path d="M4 4v4.5h4.5" />
   </Icon>
 );
+
+export const ArrowDownIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M12 5v14m0 0l-5-5m5 5l5-5" />
+  </Icon>
+);

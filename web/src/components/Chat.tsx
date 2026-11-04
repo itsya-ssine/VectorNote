@@ -1,10 +1,11 @@
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent, type UIEvent } from "react";
 import { MAX_HISTORY, askStream, isAbort } from "../lib/api";
 import type { ChatMessage, ChatTurn } from "../lib/types";
 import { answerForClipboard, sourceDomId } from "../lib/answer";
 import { AnswerText } from "./AnswerText";
 import { CopyButton } from "./CopyButton";
 import {
+  ArrowDownIcon,
   ArrowIcon,
   ChevronIcon,
   LogoMark,
@@ -44,6 +45,10 @@ export function Chat({ sources, hasDocuments, onOpenNav }: Props) {
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const bottom = useRef<HTMLDivElement>(null);
+  const field = useRef<HTMLInputElement>(null);
+  // Follow the answer as it streams, unless the person scrolled up to read something.
+  const following = useRef(true);
+  const [away, setAway] = useState(false);
   const abort = useRef<AbortController | null>(null);
   const [highlight, setHighlight] = useState<{ messageId: string; number: number } | null>(null);
 
@@ -52,8 +57,45 @@ export function Chat({ sources, hasDocuments, onOpenNav }: Props) {
   const blocked = noDocuments || nothingSelected;
 
   useEffect(() => {
+    if (!following.current) return;
     bottom.current?.scrollIntoView({ behavior: busy ? "auto" : "smooth" });
   }, [messages, busy]);
+
+  function onScroll(e: UIEvent<HTMLDivElement>) {
+    const el = e.currentTarget;
+    const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+    following.current = atBottom;
+    setAway(!atBottom);
+  }
+
+  function jumpToLatest() {
+    following.current = true;
+    setAway(false);
+    bottom.current?.scrollIntoView({ behavior: "smooth" });
+  }
+
+  // Keyboard shortcuts: "/" focuses the question, Esc stops the answer, Alt+N starts over.
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.defaultPrevented) return;
+      const target = e.target as HTMLElement | null;
+      const typing =
+        target?.tagName === "INPUT" || target?.tagName === "TEXTAREA" || target?.isContentEditable;
+      if (e.key === "/" && !typing && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        e.preventDefault();
+        field.current?.focus();
+      } else if (e.key === "Escape" && abort.current) {
+        abort.current.abort();
+      } else if (e.altKey && e.code === "KeyN") {
+        e.preventDefault();
+        reset();
+        field.current?.focus();
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+    // reset only uses a ref and a state setter, so the first version is always current.
+  }, []);
 
   // Leaving the page stops the model instead of letting it write for nobody.
   useEffect(() => () => abort.current?.abort(), []);
@@ -77,6 +119,8 @@ export function Chat({ sources, hasDocuments, onOpenNav }: Props) {
     const history = historyOf(base);
     const replyId = crypto.randomUUID();
     setInput("");
+    following.current = true;
+    setAway(false);
     setMessages([
       ...base,
       { id: crypto.randomUUID(), role: "user", content: text },
@@ -182,7 +226,7 @@ export function Chat({ sources, hasDocuments, onOpenNav }: Props) {
         )}
       </header>
 
-      <div className="scroll">
+      <div className="scroll" onScroll={onScroll}>
         <div className="messages">
           {messages.length === 0 && (
             <div className="welcome">
@@ -312,11 +356,20 @@ export function Chat({ sources, hasDocuments, onOpenNav }: Props) {
           ))}
           <div ref={bottom} />
         </div>
+        <div className="jump-wrap">
+          {away && messages.length > 0 && (
+            <button type="button" className="jump" onClick={jumpToLatest}>
+              <ArrowDownIcon size={14} />
+              {busy ? "Follow answer" : "Latest"}
+            </button>
+          )}
+        </div>
       </div>
 
       <div className="composer-wrap">
         <form className="composer" onSubmit={onSubmit}>
           <input
+            ref={field}
             value={input}
             onChange={(e) => setInput(e.target.value)}
             placeholder={
@@ -340,7 +393,12 @@ export function Chat({ sources, hasDocuments, onOpenNav }: Props) {
             </button>
           )}
         </form>
-        <p className="composer-note">Answers are generated locally and grounded in your documents.</p>
+        <p className="composer-note">
+          Answers are generated locally and grounded in your documents.
+          <span className="shortcuts">
+            <kbd>/</kbd> ask <kbd>Esc</kbd> stop <kbd>Alt</kbd>+<kbd>N</kbd> new chat
+          </span>
+        </p>
       </div>
     </section>
   );
