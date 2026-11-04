@@ -10,7 +10,7 @@ Work in progress. The full question-answering pipeline works from the command li
 
 | Works today | Coming next |
 |---|---|
-| PDF / Markdown / text ingestion with cleaning | Static demo on Vercel (canned answers, no backend) |
+| PDF / Markdown / text ingestion with cleaning | Static demo on Vercel (ready to deploy, see [web/README.md](web/README.md#deploy-the-demo-to-vercel)) |
 | Sentence-aware chunking with page-level citations | Docker setup |
 | Incremental indexing (unchanged files are skipped) | Demo video and the v1.0.0 release |
 | Vector, BM25 keyword and hybrid (RRF) search from the CLI | Reranking (optional) |
@@ -88,6 +88,7 @@ The React UI talks to the API and works on desktop and phone-sized screens. More
 - **Citations:** the `[1]` markers are buttons that open the sources, scroll to the passage and highlight it. Each answer and each passage has a copy button.
 - **Documents:** upload several files at once with per-file progress, remove a file and its passages, and untick a document to leave it out of the search.
 - **States:** an empty index explains how to add a document, failed answers have a "Try again" button, and "I couldn't find it" replies are styled as refusals.
+- **Demo:** the same UI runs as a static site with canned answers (seven topics, follow-ups, refusals) and no backend. It is built from `web/` and deployed to Vercel; see [web/README.md](web/README.md#deploy-the-demo-to-vercel).
 - **Shortcuts:** `/` focuses the question, `Esc` stops the answer (or closes the drawer on small screens), `Alt+N` starts a new chat.
 
 ## Command line
@@ -275,6 +276,8 @@ docs/             architecture notes and the detailed task roadmap (ROADMAP.md)
   - [x] Citation experience (clickable citations, copy buttons, empty and error states)
   - [x] Polish (mobile, keyboard shortcuts, loading skeletons)
 - [ ] **Phase 6:** Vercel demo
+  - [x] Demo content (seven topics, follow-ups, refusals), `vercel.json`, CI check that the build needs no backend
+  - [ ] Import the repo on Vercel and put the live link here
 - [ ] **Phase 7:** Docker, demo video, v1.0.0
 
 ## License

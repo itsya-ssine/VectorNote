@@ -14,7 +14,7 @@ check:
 	uv run flake8
 	uv run mypy
 	uv run pytest
-	cd web && npm run build
+	cd web && npm run build && npm run check:demo
 
 bench:
 	scripts/bench_chunks.sh
