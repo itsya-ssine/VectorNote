@@ -107,3 +107,23 @@ export const InfoIcon = (p: IconProps) => (
     <path d="M12 11v5M12 8h.01" />
   </Icon>
 );
+
+export const CopyIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <rect x="9" y="9" width="11" height="11" rx="2.5" />
+    <path d="M5 15V6a2 2 0 0 1 2-2h8" />
+  </Icon>
+);
+
+export const CheckIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M5 12.5l4.5 4.5L19 7.5" />
+  </Icon>
+);
+
+export const RetryIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M4 12a8 8 0 1 0 2.6-5.9" />
+    <path d="M4 4v4.5h4.5" />
+  </Icon>
+);

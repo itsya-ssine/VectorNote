@@ -15,6 +15,14 @@ Two modes, one codebase:
   questions work because the last 10 messages are sent with each question; when the server
   rewrites a follow-up, the question it searched for is shown. "New conversation" clears the chat.
 - **Sources:** every answer lists the passages it cites, numbered like the `[1]` markers in the text.
+  The markers are buttons: press one to open the list, scroll to that passage and highlight it
+  (hover shows the file and page). Long passages have a "Show more" toggle.
+- **Copy:** each answer has a Copy button that copies the text followed by its list of sources
+  (`[1] file.pdf, p. 12`), and each passage has a small button that copies just that passage.
+- **Empty and error states:** with no document indexed yet, the chat explains how to add one instead of
+  offering questions. A failed answer (backend down, model missing) has a "Try again" button that
+  asks the same question again. When the documents do not contain the answer, the reply is styled as
+  a refusal and suggests rephrasing or checking the ticked documents.
 - **Uploads:** several files at a time, each with a progress bar, then "Indexing" while the server
   embeds it. A file that fails (wrong type, unreadable PDF) shows its own error and does not stop the others.
 - **Documents:** the list comes from `GET /documents`; the × button removes a file and its indexed passages.
