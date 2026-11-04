@@ -1,0 +1,8 @@
+# Allow-list: the image build only sees what it needs. Never your documents or your index.
+*
+!pyproject.toml
+!uv.lock
+!README.md
+!src
+**/__pycache__
+**/*.pyc

@@ -15,6 +15,18 @@ question -> RagService.search -> Retriever (vector | bm25 | hybrid) -> ranked ch
                          --  demo mode: canned answers (Vercel)
 ```
 
+With Docker (`docker-compose.yml`) the pieces run as four containers:
+
+```
+browser -> web (nginx :8080)  -- static UI
+                |  /api/*  (SSE not buffered)
+                v
+            api (uvicorn :8000) --> data/ (bind mount), chroma volume, baked embedding model
+                |
+                v
+            ollama (:11434) <-- ollama-pull (downloads the model once)
+```
+
 ## Rules
 
 - Route handlers and CLI commands call only `RagService`; they never import retrieval,

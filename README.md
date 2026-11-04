@@ -6,14 +6,14 @@ Offline, privacy-first RAG study assistant. Ingest your semester PDFs, slides an
 
 ## Status
 
-Work in progress. The full question-answering pipeline works from the command line, the API and a web UI: ingest, hybrid search, and cited answers from a local LLM through Ollama. The evaluation harness, a 46-question evaluation set and the benchmarks (retrieval, chunk sizes, answers) are done (see [Evaluation](#evaluation)), and the web UI is feature complete (see [Web UI](#web-ui)). The public demo is live. What is left is Docker packaging, upload limits and the v1.0.0 release, plus an optional reranker. See the [roadmap](#roadmap).
+Work in progress. The full question-answering pipeline works from the command line, the API and a web UI: ingest, hybrid search, and cited answers from a local LLM through Ollama. The evaluation harness, a 46-question evaluation set and the benchmarks (retrieval, chunk sizes, answers) are done (see [Evaluation](#evaluation)), and the web UI is feature complete (see [Web UI](#web-ui)). The public demo is live. What is left is upload limits, a demo video and the v1.0.0 release, plus an optional reranker.0.0 release, plus an optional reranker. See the [roadmap](#roadmap).
 
 | Works today | Coming next |
 |---|---|
-| PDF / Markdown / text ingestion with cleaning | Docker setup |
-| Sentence-aware chunking with page-level citations | Upload limits and more tests |
-| Incremental indexing (unchanged files are skipped) | Demo video and the v1.0.0 release |
-| Vector, BM25 keyword and hybrid (RRF) search from the CLI | Reranking (optional) |
+| PDF / Markdown / text ingestion with cleaning | Upload limits and more tests |
+| Sentence-aware chunking with page-level citations | Demo video and the v1.0.0 release |
+| Incremental indexing (unchanged files are skipped) | Reranking (optional) |
+| Vector, BM25 keyword and hybrid (RRF) search from the CLI | |
 | Cited answers from a local LLM (`ask`, `POST /ask`), with an "I couldn't find it" path | |
 | Streaming answers word by word (CLI and Server-Sent Events) | |
 | Conversation memory: follow-ups like "explain that more" are rewritten before searching (`chat`) | |
@@ -23,6 +23,7 @@ Work in progress. The full question-answering pipeline works from the command li
 | Benchmarks: retrieval (vector, BM25, hybrid), chunk sizes, tuned relevance threshold, answer quality | |
 | Web UI: streaming chat with follow-ups and a stop button, clickable citations with copy buttons, upload with progress, document list with delete, per-document search filter, keyboard shortcuts, mobile layout | |
 | [Live demo on Vercel](https://vector-note.vercel.app/) with canned answers and no backend | |
+| Docker: `docker compose up` starts the API, the web UI and Ollama, and runs offline after the first start | |
 
 ## How it works
 
@@ -67,6 +68,26 @@ uv run vectornote chat
 ```
 
 The first `ingest` downloads the embedding model once (about 90 MB) into the Hugging Face cache. After that you can set `HF_HUB_OFFLINE=1` to guarantee nothing touches the network.
+
+### Run everything with Docker
+
+If you have Docker, one command starts the API, the web UI and Ollama, with nothing else to install:
+
+```bash
+docker compose up --build        # or: make docker-up
+```
+
+Open <http://localhost:3000>. The first start downloads the language model (about 2 GB, once) and builds the images, which takes a few minutes. After that it starts in seconds and works without a network connection.
+
+- **Your documents:** drop files into `data/` (it is mounted into the container) or upload them in the UI. Index files you copied by hand with `docker compose exec api vectornote ingest`.
+- **Your data stays here:** `data/` is a folder on your machine, the index lives in the `chroma` volume, and the models in the `ollama` volume. The image never contains your documents (only `src/` and the lock file are copied into the build), and the embedding model is baked in at build time, so the API container runs with `HF_HUB_OFFLINE=1`.
+- **Ports:** the UI is on 3000 and the API (with docs at `/docs`) on 8000, both bound to `127.0.0.1` so only your machine can reach them. Change the left-hand part of `ports:` in `docker-compose.yml` to open them to your network.
+- **Another model:** `VECTORNOTE_LLM_MODEL=qwen2.5:3b docker compose up -d` pulls and uses it. The other settings of [Configuration](#configuration) work the same way.
+- **GPU:** with an NVIDIA GPU and the NVIDIA Container Toolkit, uncomment the `deploy:` block of the `ollama` service. On macOS, Docker cannot use the GPU, so answers are slow; run Ollama natively and follow the quick start above instead.
+- **Start over:** `docker compose down` stops everything and keeps your data; add `-v` to also delete the index and the downloaded models.
+- **Permission denied on `data/`:** the API runs as user 1000. If yours is different, run `sudo chown -R 1000 data`.
+
+The API image uses the CPU build of PyTorch (about 2 GB instead of 7 GB or more with CUDA). The web image serves the built UI with nginx and forwards `/api` to the API, so the browser only talks to one address.
 
 ### Run the API and the web UI
 
@@ -279,7 +300,10 @@ docs/             architecture notes and the detailed task roadmap (ROADMAP.md)
 - [x] **Phase 6:** Vercel demo
   - [x] Demo content (seven topics, follow-ups, refusals), `vercel.json`, CI check that the build needs no backend
   - [x] Live at https://vector-note.vercel.app/
-- [ ] **Phase 7:** Docker, demo video, v1.0.0
+- [ ] **Phase 7:** Docker, hardening, demo video, v1.0.0
+  - [x] Docker: API image, nginx web image, `docker-compose.yml` with Ollama
+  - [ ] Upload limits and more tests
+  - [ ] Demo video and the v1.0.0 release
 
 ## License
 

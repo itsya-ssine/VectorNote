@@ -32,3 +32,25 @@ jobs:
       - run: npm run build
       # The production build is the Vercel demo: it must work with no backend.
       - run: npm run check:demo
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compose file is valid
+        run: docker compose config -q
+      - name: Build the API image
+        run: docker build -t vectornote-api .
+      - name: API image has no CUDA libraries and starts
+        run: |
+          docker run --rm vectornote-api python -c "import importlib.metadata as m; bad = [d.metadata['Name'] for d in m.distributions() if d.metadata['Name'].lower().startswith(('nvidia', 'triton'))]; assert not bad, bad"
+          docker run -d --name api -p 8000:8000 vectornote-api
+          for i in $(seq 1 30); do curl -fs http://localhost:8000/health && break; sleep 2; done
+          curl -fs http://localhost:8000/health
+          docker logs api
+      - name: Embedding model loads with the network off
+        run: docker run --rm --network none vectornote-api python -c "from sentence_transformers import SentenceTransformer as S; S('sentence-transformers/all-MiniLM-L6-v2')"
+      - name: Build the web image
+        run: docker build -t vectornote-web web
+      - name: Image sizes
+        run: docker images --format '{{.Repository}} {{.Size}}' | grep vectornote

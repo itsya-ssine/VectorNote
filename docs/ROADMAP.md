@@ -111,8 +111,9 @@ Phases 1 to 3 give you a working terminal tool, which is the core of the project
 
 ## Phase 7: Packaging and showcase
 
-- [ ] **Task 18: Docker** (`feat/docker`)
-  - A `Dockerfile` for the API, one for the web build (served by nginx), and a `docker-compose.yml` with the app and Ollama.
+- [x] **Task 18: Docker** (`feat/docker`)
+  - `Dockerfile` for the API (CPU-only PyTorch from the lock file, embedding model baked in, runs offline, non-root), `web/Dockerfile` (Vite build in live mode, served by nginx, `/api` forwarded to the API with streaming), and `docker-compose.yml` with Ollama and a one-shot model pull.
+  - An allow-list `.dockerignore` keeps documents and the index out of the images; `make docker-up`; a CI job builds both images, checks for CUDA libraries, starts the API and loads the embedding model with the network off.
   - **Done when:** one command starts everything.
 
 - [ ] **Task 19: Quality hardening** (`chore/hardening`)
