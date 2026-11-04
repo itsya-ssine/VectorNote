@@ -1,7 +1,19 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { MAX_HISTORY, askStream, isAbort } from "../lib/api";
 import type { ChatMessage, ChatTurn } from "../lib/types";
-import { ArrowIcon, ChevronIcon, LogoMark, MenuIcon, PlusIcon, SendIcon, StopIcon } from "./icons";
+import { answerForClipboard, sourceDomId } from "../lib/answer";
+import { AnswerText } from "./AnswerText";
+import { CopyButton } from "./CopyButton";
+import {
+  ArrowIcon,
+  ChevronIcon,
+  LogoMark,
+  MenuIcon,
+  PlusIcon,
+  RetryIcon,
+  SendIcon,
+  StopIcon,
+} from "./icons";
 import { SourceCard } from "./SourceCard";
 
 const SUGGESTIONS = [
@@ -14,25 +26,10 @@ const MAX_TURN_CHARS = 8000; // the API rejects longer messages
 interface Props {
   /** Files to search in, or undefined to search everything. */
   sources?: string[];
+  /** False when no document is indexed yet; undefined while the list is still loading. */
+  hasDocuments?: boolean;
   /** Opens the document sidebar (small screens only). */
   onOpenNav: () => void;
-}
-
-/** Turns "[1]" citation markers in an answer into small numbered chips. */
-function AnswerText({ text }: { text: string }) {
-  return (
-    <>
-      {text.split(/(\[\d+\])/g).map((part, i) =>
-        /^\[\d+\]$/.test(part) ? (
-          <span key={i} className="cite" aria-label={`Source ${part.slice(1, -1)}`}>
-            {part.slice(1, -1)}
-          </span>
-        ) : (
-          part
-        ),
-      )}
-    </>
-  );
 }
 
 function historyOf(messages: ChatMessage[]): ChatTurn[] {
@@ -42,14 +39,17 @@ function historyOf(messages: ChatMessage[]): ChatTurn[] {
     .map((m) => ({ role: m.role, content: m.content.slice(0, MAX_TURN_CHARS) }));
 }
 
-export function Chat({ sources, onOpenNav }: Props) {
+export function Chat({ sources, hasDocuments, onOpenNav }: Props) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const bottom = useRef<HTMLDivElement>(null);
   const abort = useRef<AbortController | null>(null);
+  const [highlight, setHighlight] = useState<{ messageId: string; number: number } | null>(null);
 
+  const noDocuments = hasDocuments === false;
   const nothingSelected = sources !== undefined && sources.length === 0;
+  const blocked = noDocuments || nothingSelected;
 
   useEffect(() => {
     bottom.current?.scrollIntoView({ behavior: busy ? "auto" : "smooth" });
@@ -58,19 +58,27 @@ export function Chat({ sources, onOpenNav }: Props) {
   // Leaving the page stops the model instead of letting it write for nobody.
   useEffect(() => () => abort.current?.abort(), []);
 
+  // The highlight of a clicked citation fades after a moment.
+  useEffect(() => {
+    if (!highlight) return;
+    const timer = window.setTimeout(() => setHighlight(null), 1800);
+    return () => window.clearTimeout(timer);
+  }, [highlight]);
+
   function patch(id: string, change: (m: ChatMessage) => ChatMessage) {
     setMessages((all) => all.map((m) => (m.id === id ? change(m) : m)));
   }
 
-  async function send(question: string) {
+  /** `base` is the conversation the question continues; a retry passes the messages before it. */
+  async function send(question: string, base: ChatMessage[] = messages) {
     const text = question.trim();
-    if (!text || busy || nothingSelected) return;
+    if (!text || busy || blocked) return;
 
-    const history = historyOf(messages);
+    const history = historyOf(base);
     const replyId = crypto.randomUUID();
     setInput("");
-    setMessages((all) => [
-      ...all,
+    setMessages([
+      ...base,
       { id: crypto.randomUUID(), role: "user", content: text },
       { id: replyId, role: "assistant", content: "", streaming: true },
     ]);
@@ -121,13 +129,34 @@ export function Chat({ sources, onOpenNav }: Props) {
     setMessages([]);
   }
 
+  /** Asks the question of a failed reply again, replacing the failed exchange. */
+  function retry(replyId: string) {
+    const index = messages.findIndex((m) => m.id === replyId);
+    const question = index > 0 ? messages[index - 1] : undefined;
+    if (!question || question.role !== "user") return;
+    void send(question.content, messages.slice(0, index - 1));
+  }
+
+  /** A citation marker was pressed: open the sources, scroll to the card and flash it. */
+  function openSource(messageId: string, number: number) {
+    const card = document.getElementById(sourceDomId(messageId, number));
+    if (!card) return;
+    const details = card.closest("details");
+    if (details) details.open = true;
+    const calm = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    card.scrollIntoView({ behavior: calm ? "auto" : "smooth", block: "nearest" });
+    card.focus({ preventScroll: true });
+    setHighlight({ messageId, number });
+  }
+
   function onSubmit(e: FormEvent) {
     e.preventDefault();
     void send(input);
   }
 
-  const scope =
-    sources === undefined
+  const scope = noDocuments
+    ? "No documents yet"
+    : sources === undefined
       ? "All documents"
       : nothingSelected
         ? "No document selected"
@@ -141,7 +170,7 @@ export function Chat({ sources, onOpenNav }: Props) {
         </button>
         <div className="chat-title">
           <h2>Chat</h2>
-          <span className={`pill${nothingSelected ? " warn" : ""}`} role="status">
+          <span className={`pill${blocked ? " warn" : ""}`} role="status">
             {scope}
           </span>
         </div>
@@ -160,23 +189,38 @@ export function Chat({ sources, onOpenNav }: Props) {
               <div className="welcome-logo">
                 <LogoMark size={52} />
               </div>
-              <h2>Ask anything about your notes</h2>
-              <p>Answers come only from your documents, with the page they were found on.</p>
-              <div className="suggestions">
-                {SUGGESTIONS.map((s) => (
-                  <button
-                    key={s}
-                    className="chip"
-                    disabled={nothingSelected}
-                    onClick={() => void send(s)}
-                  >
-                    <span>{s}</span>
-                    <ArrowIcon size={16} />
+              {noDocuments ? (
+                <>
+                  <h2>Add a document to get started</h2>
+                  <p>
+                    Upload a PDF, Markdown or text file in the sidebar. VectorNote indexes it on
+                    your machine, then answers with the page each passage came from.
+                  </p>
+                  <button className="btn-ghost mobile-only" onClick={onOpenNav}>
+                    Open documents
                   </button>
-                ))}
-              </div>
-              {nothingSelected && (
-                <p className="welcome-note">Tick at least one document in the sidebar to start.</p>
+                </>
+              ) : (
+                <>
+                  <h2>Ask anything about your notes</h2>
+                  <p>Answers come only from your documents, with the page they were found on.</p>
+                  <div className="suggestions">
+                    {SUGGESTIONS.map((s) => (
+                      <button
+                        key={s}
+                        className="chip"
+                        disabled={blocked}
+                        onClick={() => void send(s)}
+                      >
+                        <span>{s}</span>
+                        <ArrowIcon size={16} />
+                      </button>
+                    ))}
+                  </div>
+                  {nothingSelected && (
+                    <p className="welcome-note">Tick at least one document in the sidebar to start.</p>
+                  )}
+                </>
               )}
             </div>
           )}
@@ -208,11 +252,24 @@ export function Chat({ sources, onOpenNav }: Props) {
                   </p>
                 ) : (
                   <p>
-                    {m.role === "assistant" ? <AnswerText text={m.content} /> : m.content}
+                    {m.role === "assistant" ? (
+                      <AnswerText
+                        text={m.content}
+                        sources={m.sources}
+                        onCite={(n) => openSource(m.id, n)}
+                      />
+                    ) : (
+                      m.content
+                    )}
                     {m.streaming && <span className="cursor" aria-hidden="true" />}
                   </p>
                 )}
                 {m.stopped && <p className="stopped">Stopped.</p>}
+                {m.answered === false && !m.streaming && (
+                  <p className="refused-hint">
+                    Try rephrasing the question, or check which documents are ticked in the sidebar.
+                  </p>
+                )}
                 {m.sources && m.sources.length > 0 && (
                   <details className="sources" open>
                     <summary>
@@ -221,10 +278,34 @@ export function Chat({ sources, onOpenNav }: Props) {
                     </summary>
                     <ul>
                       {m.sources.map((s) => (
-                        <SourceCard key={`${s.number}-${s.source}-${s.page}`} source={s} />
+                        <SourceCard
+                          key={`${s.number}-${s.source}-${s.page}`}
+                          id={sourceDomId(m.id, s.number)}
+                          source={s}
+                          highlighted={highlight?.messageId === m.id && highlight.number === s.number}
+                        />
                       ))}
                     </ul>
                   </details>
+                )}
+                {m.role === "assistant" && !m.streaming && m.content !== "" && (
+                  <div className="msg-actions">
+                    {m.error ? (
+                      <button
+                        type="button"
+                        className="action-btn"
+                        disabled={busy || blocked}
+                        onClick={() => retry(m.id)}
+                      >
+                        <RetryIcon size={14} />
+                        <span>Try again</span>
+                      </button>
+                    ) : (
+                      m.answered !== false && (
+                        <CopyButton getText={() => answerForClipboard(m.content, m.sources)} />
+                      )
+                    )}
+                  </div>
                 )}
               </div>
             </div>
@@ -238,9 +319,11 @@ export function Chat({ sources, onOpenNav }: Props) {
           <input
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            placeholder="Ask a question about your documents"
+            placeholder={
+              noDocuments ? "Upload a document to start asking" : "Ask a question about your documents"
+            }
             aria-label="Question"
-            disabled={nothingSelected}
+            disabled={blocked}
           />
           {busy ? (
             <button type="button" className="send stop" onClick={stop} aria-label="Stop generating">
@@ -251,7 +334,7 @@ export function Chat({ sources, onOpenNav }: Props) {
               type="submit"
               className="send"
               aria-label="Send"
-              disabled={nothingSelected || input.trim() === ""}
+              disabled={blocked || input.trim() === ""}
             >
               <SendIcon size={18} />
             </button>

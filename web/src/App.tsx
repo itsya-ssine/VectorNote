@@ -6,9 +6,14 @@ import { DEMO_MODE } from "./lib/api";
 
 export default function App() {
   const [documents, setDocuments] = useState<string[]>([]);
+  const [documentsLoaded, setDocumentsLoaded] = useState(false);
   const [excluded, setExcluded] = useState<string[]>([]);
   const [navOpen, setNavOpen] = useState(false);
   const closeNav = useCallback(() => setNavOpen(false), []);
+  const onDocumentsChange = useCallback((names: string[]) => {
+    setDocuments(names);
+    setDocumentsLoaded(true);
+  }, []);
 
   // No filter at all unless the person unticked something, so new uploads are searched by default.
   const sources = useMemo(
@@ -25,11 +30,15 @@ export default function App() {
           onClose={closeNav}
           excluded={excluded}
           onExcludedChange={setExcluded}
-          onDocumentsChange={setDocuments}
+          onDocumentsChange={onDocumentsChange}
         />
         {navOpen && <div className="backdrop" onClick={closeNav} aria-hidden="true" />}
         <main className="main">
-          <Chat sources={sources} onOpenNav={() => setNavOpen(true)} />
+          <Chat
+            sources={sources}
+            hasDocuments={documentsLoaded ? documents.length > 0 : undefined}
+            onOpenNav={() => setNavOpen(true)}
+          />
         </main>
       </div>
     </div>
