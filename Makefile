@@ -1,4 +1,4 @@
-.PHONY: install api web check bench
+.PHONY: install api web check bench docker-up docker-down docker-logs
 
 install:
 	uv sync
@@ -18,3 +18,12 @@ check:
 
 bench:
 	scripts/bench_chunks.sh
+
+docker-up:
+	docker compose up --build -d
+
+docker-down:
+	docker compose down
+
+docker-logs:
+	docker compose logs -f
