@@ -39,7 +39,9 @@ export function Sidebar({ open, onClose, excluded, onExcludedChange, onDocuments
   const [deleting, setDeleting] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [dragging, setDragging] = useState(false);
+  const [loading, setLoading] = useState(true);
   const input = useRef<HTMLInputElement>(null);
+  const closeButton = useRef<HTMLButtonElement>(null);
 
   const refresh = useCallback(async () => {
     try {
@@ -49,8 +51,15 @@ export function Sidebar({ open, onClose, excluded, onExcludedChange, onDocuments
       onDocumentsChange(list.map((d) => d.name));
     } catch (err) {
       setLoadError(err instanceof Error ? err.message : "Could not load the documents.");
+    } finally {
+      setLoading(false);
     }
   }, [onDocumentsChange]);
+
+  // When the drawer opens on a small screen, keyboard focus moves into it.
+  useEffect(() => {
+    if (open) closeButton.current?.focus();
+  }, [open]);
 
   useEffect(() => {
     void refresh();
@@ -133,7 +142,12 @@ export function Sidebar({ open, onClose, excluded, onExcludedChange, onDocuments
             <h1 className="brand">VectorNote</h1>
             <p className="tagline">Offline study assistant</p>
           </div>
-          <button className="icon-btn sidebar-close" aria-label="Close sidebar" onClick={onClose}>
+          <button
+            ref={closeButton}
+            className="icon-btn sidebar-close"
+            aria-label="Close sidebar"
+            onClick={onClose}
+          >
             <CloseIcon />
           </button>
         </div>
@@ -201,8 +215,20 @@ export function Sidebar({ open, onClose, excluded, onExcludedChange, onDocuments
             </button>
           </p>
         )}
-        <ul className="docs">
-          {docs.length === 0 && !loadError && <li className="empty">No documents yet.</li>}
+        <ul className="docs" aria-busy={loading}>
+          {loading &&
+            [0, 1, 2].map((i) => (
+              <li key={i} className="skeleton-row" aria-hidden="true">
+                <span className="skeleton skeleton-badge" />
+                <span className="skeleton-lines">
+                  <span className="skeleton skeleton-line" />
+                  <span className="skeleton skeleton-line short" />
+                </span>
+              </li>
+            ))}
+          {!loading && docs.length === 0 && !loadError && (
+            <li className="empty">No documents yet.</li>
+          )}
           {docs.map((d) => {
             const off = excluded.includes(d.name);
             return (

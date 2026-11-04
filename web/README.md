@@ -30,6 +30,25 @@ Two modes, one codebase:
 
 In static demo mode the same screens run on canned data, so uploads and deletes only change the list in the page.
 
+## Keyboard shortcuts
+
+| Key | Action |
+|---|---|
+| `/` | Focus the question field (when you are not typing) |
+| `Enter` | Send the question |
+| `Esc` | Stop the answer being written; closes the documents drawer on small screens |
+| `Alt` + `N` | Start a new chat |
+
+## Small screens and touch
+
+The documents sidebar becomes a drawer (menu button, or "Open documents" on the empty screen):
+it takes keyboard focus when opened, `Esc` or a tap outside closes it, and it is out of the tab
+order while closed. The question field uses a 16px font so iOS does not zoom into it, the composer
+respects the home-indicator safe area, and buttons get larger tap targets on touch screens.
+
+While an answer streams, the chat follows it. Scroll up to read something and it stops following;
+a "Follow answer" button brings you back. The document list shows placeholder rows while it loads.
+
 ## Local development
 
 ```bash
