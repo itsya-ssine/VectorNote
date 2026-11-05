@@ -11,6 +11,7 @@ export const MAX_HISTORY = 10;
 function describe(status: number, body: unknown): string {
   const detail = (body as { detail?: unknown } | null)?.detail;
   if (typeof detail === "string" && detail) return detail;
+  if (status === 413) return "The file is too large.";
   if (status === 422) return "The request was not valid.";
   return `Request failed (${status})`;
 }
