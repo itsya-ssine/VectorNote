@@ -46,6 +46,7 @@ services:
       VECTORNOTE_LLM_MODEL: ${VECTORNOTE_LLM_MODEL:-llama3.2:3b}
       VECTORNOTE_RETRIEVAL_MODE: ${VECTORNOTE_RETRIEVAL_MODE:-hybrid}
       VECTORNOTE_MIN_RELEVANCE: ${VECTORNOTE_MIN_RELEVANCE:-0.35}
+      VECTORNOTE_MAX_UPLOAD_MB: ${VECTORNOTE_MAX_UPLOAD_MB:-50}
     volumes:
       - ./data:/data        # your documents; add files here or upload them in the UI
       - chroma:/chroma      # the index

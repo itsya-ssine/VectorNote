@@ -1,4 +1,4 @@
-.PHONY: install api web check bench docker-up docker-down docker-logs
+.PHONY: install api web dev check bench docker-up docker-down docker-logs
 
 install:
 	uv sync
@@ -9,6 +9,10 @@ api:
 
 web:
 	cd web && npm run dev
+
+# The API (:8000) and the web UI (:3000) together; Ctrl-C stops both.
+dev:
+	$(MAKE) -j2 api web
 
 check:
 	uv run flake8
