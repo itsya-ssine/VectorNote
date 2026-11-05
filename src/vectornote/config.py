@@ -29,3 +29,8 @@ class Settings:
     chunk_size: int = field(default_factory=lambda: int(_env("CHUNK_SIZE", "800")))
     chunk_overlap: int = field(default_factory=lambda: int(_env("CHUNK_OVERLAP", "100")))
     top_k: int = 5
+    max_upload_mb: int = field(default_factory=lambda: int(_env("MAX_UPLOAD_MB", "50")))
+
+    @property
+    def max_upload_bytes(self) -> int:
+        return self.max_upload_mb * 1024 * 1024

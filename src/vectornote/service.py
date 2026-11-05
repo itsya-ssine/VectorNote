@@ -50,6 +50,8 @@ ENCODE_BATCH = 64
 IngestStatus = Literal["added", "updated", "unchanged", "empty", "failed", "removed"]
 
 _UNSAFE = re.compile(r"[^\w .()\-]")
+# File systems limit a name to 255 bytes; stay well below it.
+MAX_NAME_BYTES = 200
 
 
 @dataclass(frozen=True)
@@ -90,7 +92,19 @@ def safe_filename(name: str) -> str:
     """Reduce an uploaded file name to a safe name inside the data directory."""
     base = Path(name.replace("\\", "/")).name
     base = _UNSAFE.sub("_", base).strip(" .")
-    return base or "upload"
+    return _shorten(base) or "upload"
+
+
+def _shorten(name: str) -> str:
+    """Cut a long name to `MAX_NAME_BYTES` bytes (UTF-8), keeping the extension."""
+    if len(name.encode()) <= MAX_NAME_BYTES:
+        return name
+    suffix = Path(name).suffix
+    stem = name[: len(name) - len(suffix)] if suffix else name
+    stem = stem[: max(1, MAX_NAME_BYTES - len(suffix.encode()))]
+    while len(stem.encode()) > MAX_NAME_BYTES - len(suffix.encode()):
+        stem = stem[:-1]
+    return stem.rstrip(" .") + suffix
 
 
 def hash_file(path: Path) -> str:

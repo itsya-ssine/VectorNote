@@ -22,6 +22,7 @@ from vectornote.api.schemas import (
     IngestResponse,
     SourceRef,
 )
+from vectornote.api.limits import too_large_detail
 from vectornote.config import Settings
 from vectornote.generation import OllamaError
 from vectornote.ingestion.loaders import DocumentLoadError, UnsupportedFileTypeError
@@ -65,10 +66,17 @@ def delete_document(name: str, service: ServiceDep) -> DeleteResponse:
 
 
 @router.post("/ingest", response_model=IngestResponse)
-def ingest(file: UploadFile, service: ServiceDep) -> IngestResponse:
-    """Upload a PDF, Markdown or text file and index it."""
+def ingest(file: UploadFile, service: ServiceDep, settings: SettingsDep) -> IngestResponse:
+    """Upload a PDF, Markdown or text file and index it.
+
+    Files over `VECTORNOTE_MAX_UPLOAD_MB` are refused with 413 (usually already by
+    `UploadSizeLimit`, from the Content-Length; this catches uploads that do not declare one).
+    """
+    content = file.file.read(settings.max_upload_bytes + 1)
+    if len(content) > settings.max_upload_bytes:
+        raise HTTPException(status_code=413, detail=too_large_detail(settings.max_upload_mb))
     try:
-        result = service.ingest_upload(file.filename or "upload", file.file.read())
+        result = service.ingest_upload(file.filename or "upload", content)
     except UnsupportedFileTypeError as exc:
         raise HTTPException(status_code=415, detail=str(exc)) from exc
     except DocumentLoadError as exc:
