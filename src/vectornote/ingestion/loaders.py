@@ -22,11 +22,11 @@ class DocumentLoadError(RuntimeError):
     """The file exists but could not be read (corrupt, encrypted, ...)."""
 
 
-def _load_pdf(path: Path) -> list[Page]:
+def _load_pdf(path: Path, name: str) -> list[Page]:
     try:
         with pymupdf.open(str(path)) as pdf:
             if pdf.needs_pass:
-                raise DocumentLoadError(f"{path.name} is password protected")
+                raise DocumentLoadError(f"{name} is password protected")
             return [
                 Page(number=index, text=page.get_text("text"))
                 for index, page in enumerate(pdf, start=1)
@@ -34,7 +34,9 @@ def _load_pdf(path: Path) -> list[Page]:
     except DocumentLoadError:
         raise
     except Exception as exc:
-        raise DocumentLoadError(f"Could not read {path.name}: {exc}") from exc
+        # The library quotes the full path (for an upload, a temporary one); show the name only.
+        reason = str(exc).replace(str(path), name).replace(path.name, name)
+        raise DocumentLoadError(f"Could not read {name}: {reason}") from exc
 
 
 def _load_text(path: Path) -> list[Page]:
@@ -55,8 +57,9 @@ def load_document(path: Path, source: str | None = None) -> Document:
     if not path.is_file():
         raise FileNotFoundError(path)
 
-    pages = _load_pdf(path) if suffix == ".pdf" else _load_text(path)
-    doc = Document(source=source or path.name, pages=pages)
+    name = source or path.name
+    pages = _load_pdf(path, name) if suffix == ".pdf" else _load_text(path)
+    doc = Document(source=name, pages=pages)
     if not any(page.text.strip() for page in doc.pages):
         logger.warning("%s has no extractable text (scanned PDF? OCR is needed)", doc.source)
     return doc
