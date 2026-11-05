@@ -6,18 +6,18 @@ Offline, privacy-first RAG study assistant. Ingest your semester PDFs, slides an
 
 ## Status
 
-Work in progress. The full question-answering pipeline works from the command line, the API and a web UI: ingest, hybrid search, and cited answers from a local LLM through Ollama. The evaluation harness, a 46-question evaluation set and the benchmarks (retrieval, chunk sizes, answers) are done (see [Evaluation](#evaluation)), and the web UI is feature complete (see [Web UI](#web-ui)). The public demo is live. What is left is upload limits, a demo video and the v1.0.0 release, plus an optional reranker.0.0 release, plus an optional reranker. See the [roadmap](#roadmap).
+Work in progress. The full question-answering pipeline works from the command line, the API and a web UI: ingest, hybrid search, and cited answers from a local LLM through Ollama. The evaluation harness, a 46-question evaluation set and the benchmarks (retrieval, chunk sizes, answers) are done (see [Evaluation](#evaluation)), and the web UI is feature complete (see [Web UI](#web-ui)). The public demo is live. What is left is a demo video and the v1.0.0 release, plus an optional reranker.0.0 release, plus an optional reranker.0.0 release, plus an optional reranker. See the [roadmap](#roadmap).
 
 | Works today | Coming next |
 |---|---|
-| PDF / Markdown / text ingestion with cleaning | Upload limits and more tests |
-| Sentence-aware chunking with page-level citations | Demo video and the v1.0.0 release |
-| Incremental indexing (unchanged files are skipped) | Reranking (optional) |
+| PDF / Markdown / text ingestion with cleaning | Demo video and the v1.0.0 release |
+| Sentence-aware chunking with page-level citations | Reranking (optional) |
+| Incremental indexing (unchanged files are skipped) | |
 | Vector, BM25 keyword and hybrid (RRF) search from the CLI | |
 | Cited answers from a local LLM (`ask`, `POST /ask`), with an "I couldn't find it" path | |
 | Streaming answers word by word (CLI and Server-Sent Events) | |
 | Conversation memory: follow-ups like "explain that more" are rewritten before searching (`chat`) | |
-| FastAPI endpoints for upload, listing, delete, health and questions | |
+| FastAPI endpoints for upload (size-limited, safe file names), listing, delete, health and questions | |
 | Evaluation harness: question-set tools and `eval run` (hit rate, MRR, latency, citations, refusals) | |
 | Evaluation set: 46 questions with expected pages (`eval/questions.jsonl`) | |
 | Benchmarks: retrieval (vector, BM25, hybrid), chunk sizes, tuned relevance threshold, answer quality | |
@@ -93,6 +93,8 @@ The API image uses the CPU build of PyTorch (about 2 GB instead of 7 GB or more 
 
 ### Run the API and the web UI
 
+With everything installed (`make install`), `make dev` starts both and Ctrl-C stops both. Or one at a time:
+
 ```bash
 uv run vectornote serve --reload            # API on http://localhost:8000 (docs at /docs)
 
@@ -136,7 +138,7 @@ The React UI talks to the API and works on desktop and phone-sized screens. More
 | `GET` | `/health` | done |
 | `GET` | `/documents` | done: files in `data/` |
 | `DELETE` | `/documents/{name}` | done: remove the file from `data/` and its chunks from the index (404 if unknown) |
-| `POST` | `/ingest` | done: upload a file and index it (415 for unsupported types, 422 for unreadable files) |
+| `POST` | `/ingest` | done: upload a file and index it (413 above `VECTORNOTE_MAX_UPLOAD_MB`, 415 for unsupported types, 422 for unreadable files) |
 | `POST` | `/ask` | done: `{question, top_k?, sources?, mode?, history?}` where `history` is the earlier messages `[{role: "user"\|"assistant", content}]` (the server keeps no conversation state; the client sends it each time). Returns `{answer, answered, standalone_question, cited, sources[]}`; 503 if Ollama is down or the model is missing |
 | `POST` | `/ask/stream` | done: same request as `/ask`, answered as Server-Sent Events: a `query` event (`{"question"}`) when a follow-up was rewritten, many `token` events (`{"text"}`), then `done` (same JSON as `/ask`), or `error` (`{"detail"}`) if the model fails midway. Closing the connection stops the model. |
 
@@ -156,6 +158,7 @@ Set these as environment variables. A `.env` file is not loaded automatically ye
 | `VECTORNOTE_LLM_MODEL` | `llama3.2:3b` | Ollama model used for answers |
 | `VECTORNOTE_OLLAMA_URL` | `http://localhost:11434` | Ollama server |
 | `VECTORNOTE_CORS_ORIGINS` | `http://localhost:3000` | Allowed browser origins, comma separated |
+| `VECTORNOTE_MAX_UPLOAD_MB` | `50` | Largest file `POST /ingest` accepts; bigger ones get a 413 before anything is stored. With Docker, nginx also caps requests at 100 MB (`web/nginx.conf`) |
 
 The index remembers which embedding model built it. If you change the model, VectorNote refuses to mix vectors and asks you to delete `chroma_db/` and ingest again.
 
@@ -246,10 +249,20 @@ The raw output is in [eval/results/](eval/results/): `chunks-400.md`, `chunks-80
 - ChromaDB telemetry is switched off.
 - The only network access is the one-time model download.
 
+### Safety of the API
+
+The API has no login: it is meant for one person on their own machine, so it listens on `127.0.0.1` by default and the Docker setup publishes its ports on `127.0.0.1` only. Do not expose it to the internet as is. Within that, uploads are limited:
+
+- Only `.pdf`, `.md` and `.txt` files are accepted (415 otherwise), up to `VECTORNOTE_MAX_UPLOAD_MB`; an oversized upload is refused from its declared size before it is written to disk.
+- File names are reduced to a plain name inside `data/` (no folders, no `..`, no hidden files, at most 200 bytes), so an upload cannot write anywhere else.
+- A file replaces an existing one only if it indexes successfully, and a failed upload leaves nothing behind.
+- Error messages name your file, never a path on the server.
+
 ## Development
 
 ```bash
-make check                     # flake8, mypy --strict, pytest, web build
+make check                     # flake8, mypy --strict, pytest, web build and demo check
+make dev                       # API and web UI together
 uv run pre-commit install      # run flake8 and mypy on every commit
 ```
 
@@ -304,7 +317,7 @@ docs/             architecture notes and the detailed task roadmap (ROADMAP.md)
   - [x] Live at https://vector-note.vercel.app/
 - [ ] **Phase 7:** Docker, hardening, demo video, v1.0.0
   - [x] Docker: API image, nginx web image, `docker-compose.yml` with Ollama
-  - [ ] Upload limits and more tests
+  - [x] Upload limits, safe file names and error messages, regression tests, `make dev`
   - [ ] Demo video and the v1.0.0 release
 
 ## License

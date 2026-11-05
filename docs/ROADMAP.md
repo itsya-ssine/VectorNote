@@ -116,9 +116,10 @@ Phases 1 to 3 give you a working terminal tool, which is the core of the project
   - An allow-list `.dockerignore` keeps documents and the index out of the images; `make docker-up`; a CI job builds both images, checks for CUDA libraries, starts the API and loads the embedding model with the network off.
   - **Done when:** one command starts everything.
 
-- [ ] **Task 19: Quality hardening** (`chore/hardening`)
-  - Raise test coverage on ingestion and retrieval, add an API test with a mocked Ollama, run `make check` in CI.
-  - Add file-size and file-type limits on uploads and sanitize filenames.
+- [x] **Task 19: Quality hardening** (`chore/hardening`)
+  - Coverage was already 99%, and `/ask` is tested with a mocked Ollama (`tests/test_ask.py`); CI runs the same checks as `make check`. So the work went into probing the API with hostile input (`tests/test_hardening.py`, 33 tests) and fixing what that found.
+  - Fixed: a 300-character file name returned a 500; there was no upload size limit; unreadable-PDF errors exposed the server's temporary path.
+  - Upload limit `VECTORNOTE_MAX_UPLOAD_MB` (default 50), checked from Content-Length before the body is stored and again after reading, with a 413 that still carries CORS headers; names are cut to 200 bytes keeping the extension; `make dev` starts the API and the UI together.
 
 - [ ] **Task 20: Docs and demo** (`docs/showcase`)
   - README with an architecture diagram, the benchmark table, setup steps, limitations and the roadmap.
