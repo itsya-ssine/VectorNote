@@ -122,9 +122,11 @@ Phases 1 to 3 give you a working terminal tool, which is the core of the project
   - Upload limit `VECTORNOTE_MAX_UPLOAD_MB` (default 50), checked from Content-Length before the body is stored and again after reading, with a 413 that still carries CORS headers; names are cut to 200 bytes keeping the extension; `make dev` starts the API and the UI together.
 
 - [ ] **Task 20: Docs and demo** (`docs/showcase`)
-  - README with an architecture diagram, the benchmark table, setup steps, limitations and the roadmap.
-  - Record a 60-90 second demo (ingest, ask, citations) and embed the GIF.
-  - Tag `v1.0.0` and create a GitHub release.
+  - [x] README with architecture diagrams (Mermaid, checked with the Mermaid parser), results at a glance, the benchmark tables, setup steps, limitations and the roadmap; the same diagrams in `docs/architecture.md`.
+  - [x] Version 1.0.0 (three files kept in step by a test), `CHANGELOG.md`, social preview card (`docs/assets/`, `web/public/og.png` with Open Graph tags).
+  - [x] Release workflow: a `v*` tag checks the version, publishes `vectornote-api` and `vectornote-web` to ghcr.io and creates the GitHub release from the changelog. `docker-compose.prebuilt.yml` runs those images and is generated from `docker-compose.yml` (a test keeps them in step).
+  - [ ] Record a 60-90 second demo (ingest, ask, citations) and embed the GIF: shot list and commands in `docs/DEMO.md`.
+  - [ ] Push the `v1.0.0` tag, make the packages public, fill in the repository About box (checklist in `docs/DEMO.md`).
 
 - [ ] **Task 21: Resume and portfolio**
   - Write the resume bullets with your real numbers (hit rate, latency, chunk counts) and add the project to your portfolio.

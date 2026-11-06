@@ -1,18 +1,51 @@
 # Architecture
 
+Overview:
+
+```mermaid
+flowchart LR
+    UI["React UI (web/)<br/>live mode, or canned demo"] --> API["FastAPI<br/>/ingest /documents /ask /ask/stream"]
+    CLI["CLI<br/>ingest, search, ask, chat"] --> SVC["RagService"]
+    API --> SVC
+    SVC --> ING["Ingestion<br/>load, clean, chunk"]
+    SVC --> RET["Retriever<br/>vector, BM25, hybrid"]
+    SVC --> GEN["Generation<br/>prompt, citations, rewrite"]
+    ING --> EMB["Embedder"]
+    EMB --> DB[("ChromaDB")]
+    RET --> DB
+    GEN --> OLL["Ollama"]
 ```
-PDFs / notes -> loaders -> cleaning -> chunking -> embeddings -> ChromaDB
-                                                                   |
-question -> RagService.search -> Retriever (vector | bm25 | hybrid) -> ranked chunks
-                  |
-                  +-- RagService.ask: relevance gate -> prompt -> Ollama -> answer with [n] citations
-                  ^
-                  |
-        FastAPI (/ingest, /documents, /health, /ask, /ask/stream)   CLI (ingest, search, ask, chat, inspect)
-                  ^
-                  |
-        React UI (web/)  --  live mode: calls the API
-                         --  demo mode: canned answers (Vercel)
+
+Indexing a document:
+
+```mermaid
+flowchart LR
+    A["PDF, Markdown and text files"] --> B["Load pages"]
+    B --> C["Clean: running headers, footers, ligatures, hyphenation"]
+    C --> D["Chunk: sentence-aware, never across a page"]
+    D --> E["Embed: all-MiniLM-L6-v2"]
+    E --> F[("ChromaDB: vectors with file and page")]
+    F -.-> G["BM25 keyword index, rebuilt when the index changes"]
+```
+
+Answering a question:
+
+```mermaid
+flowchart TD
+    Q["Question and recent messages"] --> H{"Earlier messages?"}
+    H -- yes --> W["Rewrite as a standalone question (LLM)"]
+    H -- no --> S["Search"]
+    W --> S
+    S --> V["Vector search"]
+    S --> K["BM25 keyword search"]
+    V --> M["Reciprocal Rank Fusion"]
+    K --> M
+    M --> T{"Passage above the relevance threshold?"}
+    T -- none --> X["I couldn't find it in your documents"]
+    T -- some --> P["Prompt with numbered passages"]
+    P --> L["Ollama streams the answer"]
+    L --> C["Map the [1] [2] markers back to file and page"]
+    C --> A["Answer with sources"]
 ```
 
 With Docker (`docker-compose.yml`) the pieces run as four containers:

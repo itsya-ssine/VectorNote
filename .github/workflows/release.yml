@@ -1,0 +1,94 @@
+name: Release
+
+# Push a tag such as v1.0.0 to publish the Docker images and create the GitHub release.
+on:
+  push:
+    tags: ["v[0-9]+.[0-9]+.[0-9]+*"]
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: The tag matches the version in the code
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          PYPROJECT="$(sed -n 's/^version = "\(.*\)"/\1/p' pyproject.toml | head -1)"
+          MODULE="$(sed -n 's/^__version__ = "\(.*\)"/\1/p' src/vectornote/__init__.py)"
+          WEB="$(sed -n 's/^  "version": "\(.*\)",/\1/p' web/package.json | head -1)"
+          for found in "$PYPROJECT" "$MODULE" "$WEB"; do
+            if [ "$found" != "$VERSION" ]; then
+              echo "::error::Tag $GITHUB_REF_NAME does not match a version in the code: pyproject.toml=$PYPROJECT, __init__.py=$MODULE, web/package.json=$WEB"
+              exit 1
+            fi
+          done
+      - name: The changelog has an entry for this version
+        run: |
+          grep -q "^## \[${GITHUB_REF_NAME#v}\]" CHANGELOG.md \
+            || { echo "::error::CHANGELOG.md has no section for ${GITHUB_REF_NAME#v}"; exit 1; }
+
+  images:
+    needs: verify
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - name: vectornote-api
+            context: .
+          - name: vectornote-web
+            context: web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository_owner }}/${{ matrix.name }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+      - uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.context }}
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=${{ matrix.name }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.name }}
+
+  release:
+    needs: images
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Release notes from the changelog
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          awk -v v="$VERSION" '$0 ~ "^## \\[" v "\\]" {found=1; next} /^## \[/ {found=0} found' CHANGELOG.md > notes.md
+          cat >> notes.md <<EOF
+
+          ## Run it
+
+          \`\`\`bash
+          mkdir -p data && curl -O https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/${GITHUB_REF_NAME}/docker-compose.prebuilt.yml
+          VECTORNOTE_VERSION=${VERSION} docker compose -f docker-compose.prebuilt.yml up
+          \`\`\`
+
+          Then open http://localhost:3000. Images: \`ghcr.io/${GITHUB_REPOSITORY_OWNER}/vectornote-api:${VERSION}\` and \`vectornote-web:${VERSION}\`.
+          EOF
+      - name: Create the GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          PRERELEASE=""
+          case "$GITHUB_REF_NAME" in *-*) PRERELEASE="--prerelease" ;; esac
+          gh release create "$GITHUB_REF_NAME" --title "VectorNote $GITHUB_REF_NAME" --notes-file notes.md $PRERELEASE

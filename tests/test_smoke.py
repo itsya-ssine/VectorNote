@@ -1,5 +1,10 @@
 from __future__ import annotations
 
+import json
+import re
+import tomllib
+from pathlib import Path
+
 import pytest
 
 from vectornote import __version__
@@ -7,8 +12,15 @@ from vectornote.cli import main
 from vectornote.config import Settings
 
 
-def test_version() -> None:
-    assert __version__ == "0.1.0"
+def test_version_matches_pyproject() -> None:
+    pyproject = tomllib.loads((Path(__file__).parents[1] / "pyproject.toml").read_text())
+    assert re.fullmatch(r"\d+\.\d+\.\d+", __version__)
+    assert __version__ == pyproject["project"]["version"]
+
+
+def test_web_package_has_the_same_version() -> None:
+    package = json.loads((Path(__file__).parents[1] / "web" / "package.json").read_text())
+    assert package["version"] == __version__
 
 
 def test_default_settings() -> None:

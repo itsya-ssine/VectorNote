@@ -1,16 +1,26 @@
 # VectorNote
 
+[![CI](https://github.com/itsya-ssine/VectorNote/actions/workflows/ci.yml/badge.svg)](https://github.com/itsya-ssine/VectorNote/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Live demo](https://img.shields.io/badge/live%20demo-vector--note.vercel.app-6366f1)](https://vector-note.vercel.app/)
+
 Offline, privacy-first RAG study assistant. Ingest your semester PDFs, slides and notes, then search them locally, with every result tied to the file and page it came from. No cloud API, no cost, and your documents never leave your machine.
 
 **Stack:** Python 3.11+, FastAPI, ChromaDB, sentence-transformers (`all-MiniLM-L6-v2`), Ollama, React + TypeScript (Vite). **[Live demo](https://vector-note.vercel.app/)**: the same UI on canned answers, no install needed (the real thing runs on your machine with your documents).
 
+**Results at a glance** (46-question evaluation set, details in [Evaluation](#evaluation)):
+
+- The right page is in the top 3 search results for **100%** of the 35 answerable questions (and first for 77%), in about 20 ms.
+- The local model answered 97% of them and correctly refused **all 7** unanswerable ones with "I couldn't find it in your documents".
+- Everything runs on your machine: no cloud API, no account, no cost.
+
 ## Status
 
-Work in progress. The full question-answering pipeline works from the command line, the API and a web UI: ingest, hybrid search, and cited answers from a local LLM through Ollama. The evaluation harness, a 46-question evaluation set and the benchmarks (retrieval, chunk sizes, answers) are done (see [Evaluation](#evaluation)), and the web UI is feature complete (see [Web UI](#web-ui)). The public demo is live. What is left is a demo video and the v1.0.0 release, plus an optional reranker.0.0 release, plus an optional reranker.0.0 release, plus an optional reranker. See the [roadmap](#roadmap).
+Version 1.0. The full question-answering pipeline works from the command line, the API and a web UI: ingest, hybrid search, and cited answers from a local LLM through Ollama. The evaluation harness, a 46-question evaluation set and the benchmarks (retrieval, chunk sizes, answers) are done (see [Evaluation](#evaluation)), and the web UI is feature complete (see [Web UI](#web-ui)). The public demo is live. What is left is optional: a reranker, and the limits listed under [Limitations](#limitations).0.0 release, plus an optional reranker.0.0 release, plus an optional reranker. See the [roadmap](#roadmap).
 
 | Works today | Coming next |
 |---|---|
-| PDF / Markdown / text ingestion with cleaning | Demo video and the v1.0.0 release |
+| PDF / Markdown / text ingestion with cleaning | Demo recording (guide: [docs/DEMO.md](docs/DEMO.md)) |
 | Sentence-aware chunking with page-level citations | Reranking (optional) |
 | Incremental indexing (unchanged files are skipped) | |
 | Vector, BM25 keyword and hybrid (RRF) search from the CLI | |
@@ -27,13 +37,36 @@ Work in progress. The full question-answering pipeline works from the command li
 
 ## How it works
 
+**Indexing a document:**
+
+```mermaid
+flowchart LR
+    A["PDF, Markdown and text files"] --> B["Load pages"]
+    B --> C["Clean: running headers, footers, ligatures, hyphenation"]
+    C --> D["Chunk: sentence-aware, never across a page"]
+    D --> E["Embed: all-MiniLM-L6-v2"]
+    E --> F[("ChromaDB: vectors with file and page")]
+    F -.-> G["BM25 keyword index, rebuilt when the index changes"]
 ```
-PDFs / notes -> load -> clean -> chunk -> embed -> ChromaDB
-                                                      |
-              question -> vector search  --+
-                       -> BM25 keywords --+-> Reciprocal Rank Fusion -> ranked passages (file, page)
-                                                      |
-                                      prompt (numbered passages) -> Ollama -> answer with [1] [2] citations
+
+**Answering a question:**
+
+```mermaid
+flowchart TD
+    Q["Question and recent messages"] --> H{"Earlier messages?"}
+    H -- yes --> W["Rewrite as a standalone question (LLM)"]
+    H -- no --> S["Search"]
+    W --> S
+    S --> V["Vector search"]
+    S --> K["BM25 keyword search"]
+    V --> M["Reciprocal Rank Fusion"]
+    K --> M
+    M --> T{"Passage above the relevance threshold?"}
+    T -- none --> X["I couldn't find it in your documents"]
+    T -- some --> P["Prompt with numbered passages"]
+    P --> L["Ollama streams the answer"]
+    L --> C["Map the [1] [2] markers back to file and page"]
+    C --> A["Answer with sources"]
 ```
 
 - **Cleaning** removes running headers, footers and page numbers, fixes ligatures and hyphenated line breaks, and keeps the original page numbers.
@@ -78,6 +111,15 @@ docker compose up --build        # or: make docker-up
 ```
 
 Open <http://localhost:3000>. The first start downloads the language model (about 2 GB, once) and builds the images, which takes a few minutes. After that it starts in seconds and works without a network connection.
+
+**Without cloning or building**, run the images published for each release on GitHub's container registry:
+
+```bash
+mkdir -p data && curl -O https://raw.githubusercontent.com/itsya-ssine/VectorNote/main/docker-compose.prebuilt.yml
+docker compose -f docker-compose.prebuilt.yml up
+```
+
+`VECTORNOTE_VERSION=1.0.0` pins a release (the default is the latest). The images are built for amd64 (Intel and AMD); on Apple Silicon Docker runs them through emulation, or you can build natively with `docker compose up --build`.
 
 - **Your documents:** drop files into `data/` (it is mounted into the container) or upload them in the UI. Index files you copied by hand with `docker compose exec api vectornote ingest`.
 - **Your data stays here:** `data/` is a folder on your machine, the index lives in the `chroma` volume, and the models in the `ollama` volume. The image never contains your documents (only `src/` and the lock file are copied into the build), and the embedding model is baked in at build time, so the API container runs with `HF_HUB_OFFLINE=1`.
@@ -243,6 +285,16 @@ VECTORNOTE_CHUNK_SIZE=400 VECTORNOTE_CHUNK_OVERLAP=50 VECTORNOTE_CHROMA_DIR=.ben
 
 The raw output is in [eval/results/](eval/results/): `chunks-400.md`, `chunks-800.md`, `chunks-1200.md` and `answers-800.md`.
 
+## Limitations
+
+- **Scanned PDFs are not read.** VectorNote uses the text layer of a PDF. A scan without text is indexed as empty (and logged as such) because OCR is not included. Tables and figures come out as plain text or are ignored.
+- **Retrieval was measured on English text only.** The benchmark is one English textbook, and the default embedding model, `all-MiniLM-L6-v2`, is trained mostly on English. The "I couldn't find it" message also exists in French, but search quality for other languages is untested. For another language, pick a multilingual embedding model (`VECTORNOTE_EMBEDDING_MODEL`) and index again.
+- **Answers are only as good as a small local model.** With `llama3.2:3b`, about one answer in ten has no `[n]` marker, 79% cite an expected page, and the model-judged faithfulness is 79% (a rough signal). Open the cited page for anything that matters. A larger model through Ollama (`VECTORNOTE_LLM_MODEL`) is the first thing to try.
+- **Answers are slow on a CPU:** about 54 seconds at the median on the benchmark machine. Streaming shows the words as they come; a GPU or a smaller model helps.
+- **The benchmark is small.** 46 questions on one textbook, so differences of a few points between settings are within noise. It has only been run on an index of 229 chunks; the keyword index lives in memory and is rebuilt when the index changes, so very large libraries are untested.
+- **No reranker yet.** Hybrid search puts the right page in the top 3 for every benchmark question, but only first for 77%; a cross-encoder reranker could improve that.
+- **One user, one machine.** There is no login (see [Safety of the API](#safety-of-the-api)) and no accounts.
+
 ## Privacy
 
 - Documents, embeddings and the index stay on your machine. `data/` and `chroma_db/` are git-ignored.
@@ -266,6 +318,8 @@ make dev                       # API and web UI together
 uv run pre-commit install      # run flake8 and mypy on every commit
 ```
 
+**Releasing:** set the new version in `pyproject.toml`, `src/vectornote/__init__.py` and `web/package.json` (a test checks that they agree), run `uv lock`, add a section to [CHANGELOG.md](CHANGELOG.md), merge, then `git tag -a v1.0.1 -m "VectorNote 1.0.1" && git push origin v1.0.1`. The release workflow checks the tag against those versions, publishes the Docker images to `ghcr.io` and creates the GitHub release from the changelog.
+
 Work happens on short-lived branches with Conventional Commits (`feat(ingest): ...`), and CI runs the backend and web jobs on every pull request. Details in [docs/architecture.md](docs/architecture.md).
 
 ## Project layout
@@ -287,7 +341,10 @@ web/              React + TypeScript UI (live mode and static demo mode)
 scripts/          smoke tests for Ollama and the vector store, example corpus generator, chunk-size benchmark
 eval/             evaluation question set, a small public example and the benchmark results
 tests/            pytest suite
-docs/             architecture notes and the detailed task roadmap (ROADMAP.md)
+docs/             architecture notes, the detailed task roadmap (ROADMAP.md), the demo recording guide
+docker-compose.yml           API, web UI and Ollama in one command
+docker-compose.prebuilt.yml  the same stack from the published images (generated)
+CHANGELOG.md      what changed in each release
 ```
 
 ## Roadmap
@@ -315,10 +372,12 @@ docs/             architecture notes and the detailed task roadmap (ROADMAP.md)
 - [x] **Phase 6:** Vercel demo
   - [x] Demo content (seven topics, follow-ups, refusals), `vercel.json`, CI check that the build needs no backend
   - [x] Live at https://vector-note.vercel.app/
-- [ ] **Phase 7:** Docker, hardening, demo video, v1.0.0
+- [ ] **Phase 7:** Docker, hardening, showcase, v1.0.0
   - [x] Docker: API image, nginx web image, `docker-compose.yml` with Ollama
   - [x] Upload limits, safe file names and error messages, regression tests, `make dev`
-  - [ ] Demo video and the v1.0.0 release
+  - [x] Showcase: architecture diagrams, limitations, changelog, social card, release workflow that publishes the Docker images
+  - [ ] Record the demo ([docs/DEMO.md](docs/DEMO.md))
+  - [ ] Tag `v1.0.0`
 
 ## License
 
