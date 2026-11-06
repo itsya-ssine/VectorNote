@@ -95,10 +95,10 @@ Phases 1 to 3 give you a working terminal tool, which is the core of the project
   - Streaming answers in the chat, upload progress and errors, document list with delete, source filter.
   - Done: `/ask/stream` is consumed with `fetch` (stop button, follow-ups send the last 10 messages, the rewritten question is shown), uploads report progress and then "indexing", each file succeeds or fails on its own, `DELETE /documents/{name}` removes a file and its chunks, and unticking a document leaves it out of the search (`sources`).
 
-- [ ] **Task 15: Citation experience** (`feat/web-citations`)
+- [x] **Task 15: Citation experience** (`feat/web-citations`)
   - Clickable citations that highlight the matching source card, a copy-answer button, empty and error states.
 
-- [ ] **Task 16: Polish** (`feat/web-polish`)
+- [x] **Task 16: Polish** (`feat/web-polish`)
   - Mobile layout, keyboard shortcuts, loading skeletons, dark and light mode check.
 
 ## Phase 6: Vercel demo
@@ -121,15 +121,12 @@ Phases 1 to 3 give you a working terminal tool, which is the core of the project
   - Fixed: a 300-character file name returned a 500; there was no upload size limit; unreadable-PDF errors exposed the server's temporary path.
   - Upload limit `VECTORNOTE_MAX_UPLOAD_MB` (default 50), checked from Content-Length before the body is stored and again after reading, with a 413 that still carries CORS headers; names are cut to 200 bytes keeping the extension; `make dev` starts the API and the UI together.
 
-- [ ] **Task 20: Docs and demo** (`docs/showcase`)
+- [x] **Task 20: Docs and demo** (`docs/showcase`)
   - [x] README with architecture diagrams (Mermaid, checked with the Mermaid parser), results at a glance, the benchmark tables, setup steps, limitations and the roadmap; the same diagrams in `docs/architecture.md`.
   - [x] Version 1.0.0 (three files kept in step by a test), `CHANGELOG.md`, social preview card (`docs/assets/`, `web/public/og.png` with Open Graph tags).
   - [x] Release workflow: a `v*` tag checks the version, publishes `vectornote-api` and `vectornote-web` to ghcr.io and creates the GitHub release from the changelog. `docker-compose.prebuilt.yml` runs those images and is generated from `docker-compose.yml` (a test keeps them in step).
   - [x] Screenshot of the web UI (`docs/assets/screenshot.png`) shown at the top of the README. A video demo was dropped on purpose: the live demo on Vercel already lets anyone try the UI.
-  - [ ] Push the `v1.0.0` tag, make the packages public, fill in the repository About box (checklist in `docs/RELEASE.md`).
-
-- [ ] **Task 21: Resume and portfolio**
-  - Write the resume bullets with your real numbers (hit rate, latency, chunk counts) and add the project to your portfolio.
+  - [x] Push the `v1.0.0` tag, make the packages public, fill in the repository About box (checklist in `docs/RELEASE.md`).
 
 ## Git workflow for every task
 
