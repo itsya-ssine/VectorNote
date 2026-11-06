@@ -1,0 +1,75 @@
+# GENERATED from docker-compose.yml by scripts/make_prebuilt_compose.py. Do not edit.
+#
+# Runs the published images, so nothing is built and you do not need the source code:
+#
+#   mkdir -p data && curl -O https://raw.githubusercontent.com/itsya-ssine/VectorNote/main/docker-compose.prebuilt.yml
+#   docker compose -f docker-compose.prebuilt.yml up
+#
+# Then open http://localhost:3000. The first start downloads the language model (about 2 GB).
+# VECTORNOTE_VERSION=1.0.0 pins a release; the default is the latest one.
+
+name: vectornote
+
+services:
+  ollama:
+    image: ollama/ollama:latest
+    volumes:
+      - ollama:/root/.ollama
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    restart: unless-stopped
+    # NVIDIA GPU (needs the NVIDIA Container Toolkit): remove the leading # of these lines.
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: all
+    #           capabilities: [gpu]
+
+  # Downloads the model once. When it is already there nothing is fetched, so this also works
+  # offline after the first start.
+  ollama-pull:
+    image: ollama/ollama:latest
+    depends_on:
+      ollama:
+        condition: service_healthy
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+      MODEL: ${VECTORNOTE_LLM_MODEL:-llama3.2:3b}
+    entrypoint: ["/bin/sh", "-c", 'ollama list | grep -qF "$$MODEL" || ollama pull "$$MODEL"']
+    restart: "no"
+
+  api:
+    image: ghcr.io/itsya-ssine/vectornote-api:${VECTORNOTE_VERSION:-latest}
+    depends_on:
+      ollama-pull:
+        condition: service_completed_successfully
+    environment:
+      VECTORNOTE_OLLAMA_URL: http://ollama:11434
+      VECTORNOTE_LLM_MODEL: ${VECTORNOTE_LLM_MODEL:-llama3.2:3b}
+      VECTORNOTE_RETRIEVAL_MODE: ${VECTORNOTE_RETRIEVAL_MODE:-hybrid}
+      VECTORNOTE_MIN_RELEVANCE: ${VECTORNOTE_MIN_RELEVANCE:-0.35}
+      VECTORNOTE_MAX_UPLOAD_MB: ${VECTORNOTE_MAX_UPLOAD_MB:-50}
+    volumes:
+      - ./data:/data        # your documents; add files here or upload them in the UI
+      - chroma:/chroma      # the index
+    ports:
+      - "127.0.0.1:8000:8000"   # API and its docs at /docs; only reachable from this machine
+    restart: unless-stopped
+
+  web:
+    image: ghcr.io/itsya-ssine/vectornote-web:${VECTORNOTE_VERSION:-latest}
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:3000:8080"   # the UI; use "3000:8080" to open it to your network
+    restart: unless-stopped
+
+volumes:
+  ollama:
+  chroma:
