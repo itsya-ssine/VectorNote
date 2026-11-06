@@ -18,24 +18,24 @@ Offline, privacy-first RAG study assistant. Ingest your semester PDFs, slides an
 
 ## Status
 
-Version 1.0. The full question-answering pipeline works from the command line, the API and a web UI: ingest, hybrid search, and cited answers from a local LLM through Ollama. The evaluation harness, a 46-question evaluation set and the benchmarks (retrieval, chunk sizes, answers) are done (see [Evaluation](#evaluation)), and the web UI is feature complete (see [Web UI](#web-ui)). The public demo is live. What is left is optional: a reranker, and the limits listed under [Limitations](#limitations). See the [roadmap](#roadmap).
+Version 1.0. The full question-answering pipeline works from the command line, the API and a web UI: ingest, hybrid search, and cited answers from a local LLM through Ollama. The evaluation harness, a 46-question evaluation set and the benchmarks (retrieval, chunk sizes, answers) are done (see [Evaluation](#evaluation)), and the web UI is feature complete (see [Web UI](#web-ui)). The public demo is live. What is left are the limits listed under [Limitations](#limitations). See the [roadmap](#roadmap).
 
-| Works today | Coming next |
-|---|---|
-| PDF / Markdown / text ingestion with cleaning | Reranking (optional) |
-| Sentence-aware chunking with page-level citations | |
-| Incremental indexing (unchanged files are skipped) | |
-| Vector, BM25 keyword and hybrid (RRF) search from the CLI | |
-| Cited answers from a local LLM (`ask`, `POST /ask`), with an "I couldn't find it" path | |
-| Streaming answers word by word (CLI and Server-Sent Events) | |
-| Conversation memory: follow-ups like "explain that more" are rewritten before searching (`chat`) | |
-| FastAPI endpoints for upload (size-limited, safe file names), listing, delete, health and questions | |
-| Evaluation harness: question-set tools and `eval run` (hit rate, MRR, latency, citations, refusals) | |
-| Evaluation set: 46 questions with expected pages (`eval/questions.jsonl`) | |
-| Benchmarks: retrieval (vector, BM25, hybrid), chunk sizes, tuned relevance threshold, answer quality | |
-| Web UI: streaming chat with follow-ups and a stop button, clickable citations with copy buttons, upload with progress, document list with delete, per-document search filter, keyboard shortcuts, mobile layout | |
-| [Live demo on Vercel](https://vector-note.vercel.app/) with canned answers and no backend | |
-| Docker: `docker compose up` starts the API, the web UI and Ollama, and runs offline after the first start | |
+| Works today |
+|---|
+| PDF / Markdown / text ingestion with cleaning |
+| Sentence-aware chunking with page-level citations |
+| Incremental indexing (unchanged files are skipped) |
+| Vector, BM25 keyword and hybrid (RRF) search from the CLI |
+| Cited answers from a local LLM (`ask`, `POST /ask`), with an "I couldn't find it" path |
+| Streaming answers word by word (CLI and Server-Sent Events) |
+| Conversation memory: follow-ups like "explain that more" are rewritten before searching (`chat`) |
+| FastAPI endpoints for upload (size-limited, safe file names), listing, delete, health and questions |
+| Evaluation harness: question-set tools and `eval run` (hit rate, MRR, latency, citations, refusals) |
+| Evaluation set: 46 questions with expected pages (`eval/questions.jsonl`) |
+| Benchmarks: retrieval (vector, BM25, hybrid), chunk sizes, tuned relevance threshold, answer quality |
+| Web UI: streaming chat with follow-ups and a stop button, clickable citations with copy buttons, upload with progress, document list with delete, per-document search filter, keyboard shortcuts, mobile layout |
+| [Live demo on Vercel](https://vector-note.vercel.app/) with canned answers and no backend |
+| Docker: `docker compose up` starts the API, the web UI and Ollama, and runs offline after the first start |
 
 ## How it works
 
@@ -294,7 +294,7 @@ The raw output is in [eval/results/](eval/results/): `chunks-400.md`, `chunks-80
 - **Answers are only as good as a small local model.** With `llama3.2:3b`, about one answer in ten has no `[n]` marker, 79% cite an expected page, and the model-judged faithfulness is 79% (a rough signal). Open the cited page for anything that matters. A larger model through Ollama (`VECTORNOTE_LLM_MODEL`) is the first thing to try.
 - **Answers are slow on a CPU:** about 54 seconds at the median on the benchmark machine. Streaming shows the words as they come; a GPU or a smaller model helps.
 - **The benchmark is small.** 46 questions on one textbook, so differences of a few points between settings are within noise. It has only been run on an index of 229 chunks; the keyword index lives in memory and is rebuilt when the index changes, so very large libraries are untested.
-- **No reranker yet.** Hybrid search puts the right page in the top 3 for every benchmark question, but only first for 77%; a cross-encoder reranker could improve that.
+- **No reranker.** Hybrid search puts the right page in the top 3 for every benchmark question, but only first for 77%; a cross-encoder reranker could improve that.
 - **One user, one machine.** There is no login (see [Safety of the API](#safety-of-the-api)) and no accounts.
 
 ## Privacy
@@ -353,10 +353,10 @@ CHANGELOG.md      what changed in each release
 
 - [x] **Phase 0:** repo, tooling, CI, API and UI skeleton
 - [x] **Phase 1:** ingestion (loaders and cleaning, chunking, embeddings and vector store, incremental ingest)
-- [ ] **Phase 2:** retrieval
+- [x] **Phase 2:** retrieval
   - [x] Vector search
   - [x] BM25 and hybrid search
-  - [ ] Reranking (optional)
+  - [x] Reranking: not planned for 1.0 (see [Limitations](#limitations))
 - [x] **Phase 3:** generation
   - [x] Cited answers, refusal path, `ask` command and `/ask` endpoint
   - [x] Streaming

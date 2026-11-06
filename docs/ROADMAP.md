@@ -57,7 +57,7 @@ Phases 1 to 3 give you a working terminal tool, which is the core of the project
   - Add BM25 over the stored chunks and fuse it with vector results using Reciprocal Rank Fusion (RRF).
   - Make the mode switchable (`vector`, `bm25`, `hybrid`) so you can compare them in Phase 4.
 
-- [ ] **Task 8: Reranking, optional** (`feat/rerank`)
+- [x] **Task 8: Reranking, optional** (`feat/rerank`): skipped on purpose, hybrid search already has the right page in the top 3 for every benchmark question.
   - A small cross-encoder reranks the top 20 down to the top 5. Keep it behind a setting.
   - **Done when (Phase 2):** `vectornote search "<query>"` returns the right pages for ten test questions whose answers you know.
 

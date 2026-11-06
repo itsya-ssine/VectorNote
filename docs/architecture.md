@@ -267,4 +267,4 @@ to stderr, so the tables can be redirected into a file. Saved runs are git-ignor
 
 Chunk size is read from `VECTORNOTE_CHUNK_SIZE` and `VECTORNOTE_CHUNK_OVERLAP`, so sizes can be
 compared by indexing into one `VECTORNOTE_CHROMA_DIR` per size (see `eval/README.md`).
-Reranking is not implemented yet, so there is nothing to compare it against.
+Reranking is not implemented (it is not planned for 1.0), so there is nothing to compare it against.
