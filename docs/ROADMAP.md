@@ -125,8 +125,8 @@ Phases 1 to 3 give you a working terminal tool, which is the core of the project
   - [x] README with architecture diagrams (Mermaid, checked with the Mermaid parser), results at a glance, the benchmark tables, setup steps, limitations and the roadmap; the same diagrams in `docs/architecture.md`.
   - [x] Version 1.0.0 (three files kept in step by a test), `CHANGELOG.md`, social preview card (`docs/assets/`, `web/public/og.png` with Open Graph tags).
   - [x] Release workflow: a `v*` tag checks the version, publishes `vectornote-api` and `vectornote-web` to ghcr.io and creates the GitHub release from the changelog. `docker-compose.prebuilt.yml` runs those images and is generated from `docker-compose.yml` (a test keeps them in step).
-  - [ ] Record a 60-90 second demo (ingest, ask, citations) and embed the GIF: shot list and commands in `docs/DEMO.md`.
-  - [ ] Push the `v1.0.0` tag, make the packages public, fill in the repository About box (checklist in `docs/DEMO.md`).
+  - [x] Screenshot of the web UI (`docs/assets/screenshot.png`) shown at the top of the README. A video demo was dropped on purpose: the live demo on Vercel already lets anyone try the UI.
+  - [ ] Push the `v1.0.0` tag, make the packages public, fill in the repository About box (checklist in `docs/RELEASE.md`).
 
 - [ ] **Task 21: Resume and portfolio**
   - Write the resume bullets with your real numbers (hit rate, latency, chunk counts) and add the project to your portfolio.
