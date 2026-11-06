@@ -8,6 +8,8 @@ Offline, privacy-first RAG study assistant. Ingest your semester PDFs, slides an
 
 **Stack:** Python 3.11+, FastAPI, ChromaDB, sentence-transformers (`all-MiniLM-L6-v2`), Ollama, React + TypeScript (Vite). **[Live demo](https://vector-note.vercel.app/)**: the same UI on canned answers, no install needed (the real thing runs on your machine with your documents).
 
+![VectorNote web UI: a cited answer with the source passage highlighted](docs/assets/screenshot.png)
+
 **Results at a glance** (46-question evaluation set, details in [Evaluation](#evaluation)):
 
 - The right page is in the top 3 search results for **100%** of the 35 answerable questions (and first for 77%), in about 20 ms.
@@ -16,12 +18,12 @@ Offline, privacy-first RAG study assistant. Ingest your semester PDFs, slides an
 
 ## Status
 
-Version 1.0. The full question-answering pipeline works from the command line, the API and a web UI: ingest, hybrid search, and cited answers from a local LLM through Ollama. The evaluation harness, a 46-question evaluation set and the benchmarks (retrieval, chunk sizes, answers) are done (see [Evaluation](#evaluation)), and the web UI is feature complete (see [Web UI](#web-ui)). The public demo is live. What is left is optional: a reranker, and the limits listed under [Limitations](#limitations).0.0 release, plus an optional reranker.0.0 release, plus an optional reranker. See the [roadmap](#roadmap).
+Version 1.0. The full question-answering pipeline works from the command line, the API and a web UI: ingest, hybrid search, and cited answers from a local LLM through Ollama. The evaluation harness, a 46-question evaluation set and the benchmarks (retrieval, chunk sizes, answers) are done (see [Evaluation](#evaluation)), and the web UI is feature complete (see [Web UI](#web-ui)). The public demo is live. What is left is optional: a reranker, and the limits listed under [Limitations](#limitations). See the [roadmap](#roadmap).
 
 | Works today | Coming next |
 |---|---|
-| PDF / Markdown / text ingestion with cleaning | Demo recording (guide: [docs/DEMO.md](docs/DEMO.md)) |
-| Sentence-aware chunking with page-level citations | Reranking (optional) |
+| PDF / Markdown / text ingestion with cleaning | Reranking (optional) |
+| Sentence-aware chunking with page-level citations | |
 | Incremental indexing (unchanged files are skipped) | |
 | Vector, BM25 keyword and hybrid (RRF) search from the CLI | |
 | Cited answers from a local LLM (`ask`, `POST /ask`), with an "I couldn't find it" path | |
@@ -341,7 +343,7 @@ web/              React + TypeScript UI (live mode and static demo mode)
 scripts/          smoke tests for Ollama and the vector store, example corpus generator, chunk-size benchmark
 eval/             evaluation question set, a small public example and the benchmark results
 tests/            pytest suite
-docs/             architecture notes, the detailed task roadmap (ROADMAP.md), the demo recording guide
+docs/             architecture notes, the detailed task roadmap (ROADMAP.md), the release checklist (RELEASE.md), the screenshot
 docker-compose.yml           API, web UI and Ollama in one command
 docker-compose.prebuilt.yml  the same stack from the published images (generated)
 CHANGELOG.md      what changed in each release
@@ -376,8 +378,8 @@ CHANGELOG.md      what changed in each release
   - [x] Docker: API image, nginx web image, `docker-compose.yml` with Ollama
   - [x] Upload limits, safe file names and error messages, regression tests, `make dev`
   - [x] Showcase: architecture diagrams, limitations, changelog, social card, release workflow that publishes the Docker images
-  - [ ] Record the demo ([docs/DEMO.md](docs/DEMO.md))
-  - [ ] Tag `v1.0.0`
+  - [x] Screenshot of the web UI in the README (a video demo is not planned)
+  - [ ] Tag `v1.0.0` ([docs/RELEASE.md](docs/RELEASE.md))
 
 ## License
 
