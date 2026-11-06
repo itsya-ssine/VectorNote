@@ -374,12 +374,12 @@ CHANGELOG.md      what changed in each release
 - [x] **Phase 6:** Vercel demo
   - [x] Demo content (seven topics, follow-ups, refusals), `vercel.json`, CI check that the build needs no backend
   - [x] Live at https://vector-note.vercel.app/
-- [ ] **Phase 7:** Docker, hardening, showcase, v1.0.0
+- [x] **Phase 7:** Docker, hardening, showcase, v1.0.0
   - [x] Docker: API image, nginx web image, `docker-compose.yml` with Ollama
   - [x] Upload limits, safe file names and error messages, regression tests, `make dev`
   - [x] Showcase: architecture diagrams, limitations, changelog, social card, release workflow that publishes the Docker images
   - [x] Screenshot of the web UI in the README (a video demo is not planned)
-  - [ ] Tag `v1.0.0` ([docs/RELEASE.md](docs/RELEASE.md))
+  - [x] Tag `v1.0.0` ([docs/RELEASE.md](docs/RELEASE.md))
 
 ## License
 
